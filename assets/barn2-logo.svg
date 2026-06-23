@@ -1,0 +1,15 @@
+<svg width="320" height="120" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="120" rx="24" fill="#0D1626"/>
+  <rect x="18" y="18" width="84" height="84" rx="18" fill="url(#paint0_linear)"/>
+  <path d="M42 44H74" stroke="#FFF8EE" stroke-width="6" stroke-linecap="round"/>
+  <path d="M42 60H82" stroke="#F0BC79" stroke-width="6" stroke-linecap="round"/>
+  <path d="M42 76H66" stroke="#FFF8EE" stroke-width="6" stroke-linecap="round"/>
+  <text x="118" y="52" fill="#F5F8FF" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">Barn2</text>
+  <text x="118" y="80" fill="#BFD1EB" font-family="Arial, Helvetica, sans-serif" font-size="13">WordPress &amp; Shopify tools</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="18" y1="18" x2="102" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0BC79"/>
+      <stop offset="1" stop-color="#D28B45"/>
+    </linearGradient>
+  </defs>
+</svg>

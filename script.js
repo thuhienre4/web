@@ -528,9 +528,14 @@ function addAloCouponUtm(value) {
   }
 
   const url = new URL(safeUrl);
-  if (!url.searchParams.has("utm_source")) {
-    url.searchParams.set("utm_source", "alocoupon");
-  }
+  const currentParams = new URLSearchParams(url.search);
+  const nextParams = new URLSearchParams();
+  nextParams.set("utm_source", currentParams.get("utm_source") || "alocoupon");
+  currentParams.delete("utm_source");
+  currentParams.forEach((value, key) => {
+    nextParams.append(key, value);
+  });
+  url.search = nextParams.toString();
   return url.href;
 }
 

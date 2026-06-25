@@ -533,16 +533,7 @@ function handleAloCouponRedirectPage() {
 
   const target = getSafeAffiliateUrl(new URLSearchParams(window.location.search).get("url"));
   if (target !== "#") {
-    document.body.innerHTML = `
-      <main class="redirect-page">
-        <strong>AloCoupon is opening your product link.</strong>
-        <p>Please wait a moment. If it does not open automatically, use the link below.</p>
-        <p><a href="${escapeHtml(target)}" rel="sponsored noopener">Continue to product</a></p>
-      </main>
-    `;
-    window.setTimeout(() => {
-      window.location.replace(target);
-    }, 1200);
+    window.location.replace(target);
   }
 }
 

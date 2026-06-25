@@ -542,36 +542,8 @@ function handleAffiliateRedirect(url, res) {
     return;
   }
 
-  const safeTarget = escapeHtml(target);
-  const scriptTarget = JSON.stringify(target).replaceAll("<", "\\u003c");
-  send(res, 200, `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <meta http-equiv="refresh" content="1.2;url=${safeTarget}" />
-  <title>Opening Product Link | AloCoupon</title>
-  <style>
-    body { align-items: center; background: #f4fbf8; color: #1f2937; display: flex; font-family: Arial, sans-serif; justify-content: center; margin: 0; min-height: 100vh; }
-    main { background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(31, 41, 55, .12); max-width: 520px; padding: 32px; text-align: center; width: calc(100% - 32px); }
-    strong { color: #0f8f5d; display: block; font-size: 18px; margin-bottom: 10px; }
-    a { color: #0f8f5d; font-weight: 700; overflow-wrap: anywhere; }
-  </style>
-</head>
-<body>
-  <main>
-    <strong>AloCoupon is opening your product link.</strong>
-    <p>Please wait a moment. If it does not open automatically, use the link below.</p>
-    <p><a href="${safeTarget}" rel="sponsored noopener">Continue to product</a></p>
-  </main>
-  <script>
-    window.setTimeout(function () {
-      window.location.replace(${scriptTarget});
-    }, 1200);
-  </script>
-</body>
-</html>`, "text/html; charset=utf-8", {
+  send(res, 302, "", "text/plain; charset=utf-8", {
+    "Location": target,
     "Referrer-Policy": "origin-when-cross-origin",
   });
 }

@@ -345,9 +345,9 @@ function bindCouponButton(button) {
 
     if (!isUsableCouponCode(code)) {
       if (safeLink !== "#") {
-        window.open(safeLink, "_blank", "noopener");
+        openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening product deal.");
+      showToast("Opening product link in 2 seconds.");
       return;
     }
 
@@ -533,20 +533,33 @@ function handleAloCouponRedirectPage() {
 
   const target = getSafeAffiliateUrl(new URLSearchParams(window.location.search).get("url"));
   if (target !== "#") {
-    document.body.innerHTML = `
-      <main class="redirect-page">
-        <strong>AloCoupon is opening your product link.</strong>
-        <p>Please wait a moment. If it does not open automatically, use the link below.</p>
-        <p><a href="${escapeHtml(target)}" rel="sponsored noopener">Continue to product</a></p>
-      </main>
-    `;
-    window.setTimeout(() => {
-      window.location.replace(target);
-    }, 1200);
+    window.location.replace(target);
   }
 }
 
 handleAloCouponRedirectPage();
+
+function openAffiliateLinkAfterDelay(url) {
+  window.setTimeout(() => {
+    window.location.href = url;
+  }, 2000);
+}
+
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("a.product-link");
+  if (!link) {
+    return;
+  }
+
+  const href = link.getAttribute("href");
+  if (!href || href === "#") {
+    return;
+  }
+
+  event.preventDefault();
+  showToast("Opening product link in 2 seconds.");
+  openAffiliateLinkAfterDelay(href);
+});
 
 function normalizeStoreKey(value) {
   return String(value || "").trim().toLowerCase();
@@ -722,9 +735,9 @@ function bindStoreCouponAction(button) {
 
     if (!isUsableCouponCode(code)) {
       if (safeLink !== "#") {
-        window.open(safeLink, "_blank", "noopener");
+        openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening product deal.");
+      showToast("Opening product link in 2 seconds.");
       return;
     }
 
@@ -895,9 +908,9 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
   const safeLink = button.dataset.link || "#";
   if (!isUsableCouponCode(code)) {
     if (safeLink !== "#") {
-      window.open(safeLink, "_blank", "noopener");
+      openAffiliateLinkAfterDelay(safeLink);
     }
-    showToast("Opening product deal.");
+    showToast("Opening product link in 2 seconds.");
     return;
   }
 

@@ -521,32 +521,17 @@ function getSafeAffiliateUrl(value) {
   }
 }
 
-function addAloCouponUtm(value) {
+function getAloCouponTrackingUrl(value) {
   const safeUrl = getSafeAffiliateUrl(value);
   if (safeUrl === "#") {
     return "#";
   }
 
-  const url = new URL(safeUrl);
-  const currentParams = new URLSearchParams(url.search);
-  const nextParams = new URLSearchParams();
-  nextParams.set("utm_source", currentParams.get("utm_source") || "alocoupon");
-  currentParams.delete("utm_source");
-  currentParams.forEach((value, key) => {
-    nextParams.append(key, value);
-  });
-  url.search = nextParams.toString();
-  return url.href;
+  return `/go?utm_source=alocoupon&url=${encodeURIComponent(safeUrl)}`;
 }
 
 function getAloCouponAffiliateUrl(value) {
-  const safeUrl = addAloCouponUtm(value);
-  if (safeUrl === "#") {
-    return "#";
-  }
-
-  const url = new URL(safeUrl);
-  return `/go/${url.hostname}${url.pathname}${url.search}${url.hash}`;
+  return getAloCouponTrackingUrl(value);
 }
 
 function slugify(value) {
@@ -568,7 +553,7 @@ function handleAloCouponRedirectPage() {
     return;
   }
 
-  const target = addAloCouponUtm(
+  const target = getSafeAffiliateUrl(
     new URLSearchParams(window.location.search).get("url") ||
     `https://${window.location.pathname.slice("/go/".length)}${window.location.search}${window.location.hash}`
   );

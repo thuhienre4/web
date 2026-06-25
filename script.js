@@ -347,7 +347,7 @@ function bindCouponButton(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("AloCoupon tracking link is ready.");
+      showToast("Opening AloCoupon deal page.");
       return;
     }
 
@@ -531,6 +531,20 @@ function getAloCouponAffiliateUrl(value) {
   return `/go/${url.hostname}${url.pathname}${url.search}${url.hash}`;
 }
 
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getOfferDealUrl(item) {
+  const base = slugify([item?.brand, item?.title].filter(Boolean).join(" ")) || "deal";
+  const id = slugify(item?.id) || slugify(item?.link) || Date.now().toString(36);
+  return `/deal/${base}-${id}`;
+}
+
 function handleAloCouponRedirectPage() {
   if (window.location.pathname !== "/go" && !window.location.pathname.startsWith("/go/")) {
     return;
@@ -554,9 +568,7 @@ function handleAloCouponRedirectPage() {
 handleAloCouponRedirectPage();
 
 function openAffiliateLinkAfterDelay(url) {
-  if (url.startsWith("/") || url.startsWith(window.location.origin)) {
-    window.history.pushState({}, "", url);
-  }
+  window.location.href = url;
 }
 
 document.addEventListener("click", (event) => {
@@ -571,7 +583,7 @@ document.addEventListener("click", (event) => {
   }
 
   event.preventDefault();
-  showToast("AloCoupon tracking link is ready.");
+  showToast("Opening AloCoupon deal page.");
   openAffiliateLinkAfterDelay(href);
 });
 
@@ -640,7 +652,7 @@ function createAffiliateCard(item, index) {
   const article = document.createElement("article");
   article.className = "admin-offer-card";
 
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getOfferDealUrl(item);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -679,7 +691,7 @@ function createUploadedDealCard(item, index) {
   const article = document.createElement("article");
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getOfferDealUrl(item);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -751,7 +763,7 @@ function bindStoreCouponAction(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("AloCoupon tracking link is ready.");
+      showToast("Opening AloCoupon deal page.");
       return;
     }
 
@@ -778,7 +790,7 @@ function createLiveCouponRow(item) {
   article.dataset.couponType = `${kind === "deal" ? "deal" : "code"} verified`;
 
   const code = escapeHtml(rawCode);
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getOfferDealUrl(item);
   const title = escapeHtml(item.title);
   const review = escapeHtml(item.review);
   const discount = getDiscountParts(item.discount);
@@ -924,7 +936,7 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
     if (safeLink !== "#") {
       openAffiliateLinkAfterDelay(safeLink);
     }
-    showToast("AloCoupon tracking link is ready.");
+    showToast("Opening AloCoupon deal page.");
     return;
   }
 

@@ -185,6 +185,24 @@ function normalizeOfferId(offer, fallbackIndex = 0) {
   return `offer_${crypto.createHash("sha1").update(source).digest("hex").slice(0, 12)}`;
 }
 
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getOfferDealSlug(offer) {
+  const base = slugify([offer.brand, offer.title].filter(Boolean).join(" ")) || "deal";
+  const id = slugify(offer.id) || slugify(offer.link);
+  return `${base}-${id}`;
+}
+
+function getOfferDealPath(offer) {
+  return `/deal/${getOfferDealSlug(offer)}`;
+}
+
 function normalizeOffers(offers) {
   return offers
     .map((offer, index) => ({
@@ -235,6 +253,13 @@ function sanitizeUpdatedOffer(input, existingOffer) {
     ...sanitizeOffer({ ...input, id: existingOffer.id }),
     createdAt: existingOffer.createdAt,
   };
+}
+
+function findOfferByDealSlug(slug) {
+  const normalizedSlug = slugify(slug);
+  return readOffers().find((offer) => {
+    return getOfferDealSlug(offer) === normalizedSlug || slugify(offer.id) === normalizedSlug;
+  });
 }
 
 function timingSafePasswordMatches(value) {
@@ -357,18 +382,14 @@ function adminPage(adminEmail = "") {
       return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
     }
 
-    function getSafeAffiliateUrl(value) {
-      try {
-        const url = new URL(value);
-        return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
-      } catch {
-        return "#";
-      }
+    function slugify(value) {
+      return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     }
 
-    function getAloCouponAffiliateUrl(value) {
-      const safeUrl = getSafeAffiliateUrl(value);
-      return safeUrl === "#" ? "#" : \`/go?url=\${encodeURIComponent(safeUrl)}\`;
+    function getOfferDealUrl(offer) {
+      const base = slugify([offer.brand, offer.title].filter(Boolean).join(" ")) || "deal";
+      const id = slugify(offer.id) || slugify(offer.link);
+      return \`/deal/\${base}-\${id}\`;
     }
 
     function resetFormMode() {
@@ -419,7 +440,7 @@ function adminPage(adminEmail = "") {
           <div class="admin-offer-actions">
             <button class="button button-outline edit-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Edit</button>
             <button class="button button-outline delete-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Delete</button>
-            <a class="product-link" href="\${escapeHtml(getAloCouponAffiliateUrl(offer.link))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
+            <a class="product-link" href="\${escapeHtml(getOfferDealUrl(offer))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
           </div>
         </article>\`
       ).join("") : \`<p class="admin-empty-state">No offers yet. Upload real partner data from the form above.</p>\`;
@@ -572,12 +593,89 @@ function handleAffiliateRedirect(url, res) {
   });
 }
 
+function dealPage(offer) {
+  const affiliateLink = getSafeAffiliateUrl(offer.link);
+  const brand = escapeHtml(offer.brand || "Partner Store");
+  const title = escapeHtml(offer.title || "Affiliate Deal");
+  const discount = escapeHtml(offer.discount || "Best Deal");
+  const category = escapeHtml(offer.category || "Deal");
+  const expiry = escapeHtml(offer.expiry || "Limited time");
+  const review = escapeHtml(offer.review || "Review this offer before visiting the partner website.");
+  const code = escapeHtml(offer.code || "No code needed");
+  const hasCode = Boolean(String(offer.code || "").trim());
+  const safeAffiliateLink = escapeHtml(affiliateLink);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index, follow" />
+  <title>${title} | AloCoupon</title>
+  <meta name="description" content="${review}" />
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body { background: #f4fbf8; color: #1f2937; font-family: Arial, sans-serif; margin: 0; }
+    .deal-landing { margin: 0 auto; max-width: 960px; padding: 48px 20px; }
+    .deal-landing-card { background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(31, 41, 55, .12); display: grid; gap: 24px; grid-template-columns: 220px 1fr; padding: 28px; }
+    .deal-landing-badge { align-items: center; background: #1f2a44; border-radius: 10px; color: #fff; display: flex; flex-direction: column; font-weight: 800; justify-content: center; min-height: 180px; text-align: center; }
+    .deal-landing-badge span { color: #6ee7b7; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
+    .deal-landing-badge strong { font-size: 30px; }
+    .deal-landing h1 { font-size: 34px; line-height: 1.1; margin: 8px 0 14px; }
+    .deal-landing-meta { color: #64748b; display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; }
+    .deal-landing-meta span { background: #eef8f2; border-radius: 999px; padding: 7px 11px; }
+    .deal-landing-code { background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 8px; display: inline-block; font-weight: 800; margin: 12px 0 18px; padding: 10px 14px; }
+    .deal-landing-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+    .deal-landing-actions a { background: #21b573; border-radius: 8px; color: #fff; font-weight: 800; padding: 13px 18px; text-decoration: none; }
+    .deal-landing-actions a.secondary { background: #e7f7ef; color: #0f8f5d; }
+    @media (max-width: 720px) { .deal-landing-card { grid-template-columns: 1fr; } .deal-landing h1 { font-size: 28px; } }
+  </style>
+</head>
+<body>
+  <main class="deal-landing">
+    <section class="deal-landing-card">
+      <div class="deal-landing-badge">
+        <span>${category}</span>
+        <strong>${discount}</strong>
+      </div>
+      <div>
+        <p class="store-name">${brand}</p>
+        <h1>${title}</h1>
+        <div class="deal-landing-meta">
+          <span>${expiry}</span>
+          <span>${hasCode ? "Coupon code available" : "Affiliate deal"}</span>
+        </div>
+        <p>${review}</p>
+        <div class="deal-landing-code">${code}</div>
+        <div class="deal-landing-actions">
+          <a href="${safeAffiliateLink}" rel="sponsored noopener">Open Affiliate Link</a>
+          <a class="secondary" href="/">Back to AloCoupon</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
 
     if (req.method === "GET" && (url.pathname === "/go" || url.pathname.startsWith("/go/"))) {
       handleAffiliateRedirect(url, res);
+      return;
+    }
+
+    const dealMatch = url.pathname.match(/^\/deal\/([^/]+)$/);
+    if (req.method === "GET" && dealMatch) {
+      const offer = findOfferByDealSlug(decodeURIComponent(dealMatch[1]));
+      if (!offer) {
+        send(res, 404, "Deal not found");
+        return;
+      }
+
+      send(res, 200, dealPage(offer), "text/html; charset=utf-8");
       return;
     }
 

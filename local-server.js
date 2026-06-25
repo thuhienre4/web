@@ -96,13 +96,31 @@ function getSafeAffiliateUrl(value) {
   }
 }
 
-function getAloCouponTrackingUrl(value) {
+function addAloCouponUtmToAffiliate(value) {
   const safeUrl = getSafeAffiliateUrl(value);
   if (safeUrl === "#") {
     return "#";
   }
 
-  return `/go?utm_source=alocoupon&url=${encodeURIComponent(safeUrl)}`;
+  const url = new URL(safeUrl);
+  const currentParams = new URLSearchParams(url.search);
+  const nextParams = new URLSearchParams();
+  nextParams.set("utm_source", currentParams.get("utm_source") || "alocoupon");
+  currentParams.delete("utm_source");
+  currentParams.forEach((paramValue, key) => {
+    nextParams.append(key, paramValue);
+  });
+  url.search = nextParams.toString();
+  return url.href;
+}
+
+function getAloCouponTrackingUrl(value) {
+  const affiliateUrl = addAloCouponUtmToAffiliate(value);
+  if (affiliateUrl === "#") {
+    return "#";
+  }
+
+  return `/go?utm_source=alocoupon&url=${encodeURIComponent(affiliateUrl)}`;
 }
 
 function escapeHtml(value) {
@@ -400,10 +418,25 @@ function adminPage(adminEmail = "") {
       }
     }
 
-    function getAloCouponTrackingUrl(value) {
+    function addAloCouponUtmToAffiliate(value) {
       const safeUrl = getSafeAffiliateUrl(value);
       if (safeUrl === "#") return "#";
-      return \`/go?utm_source=alocoupon&url=\${encodeURIComponent(safeUrl)}\`;
+      const url = new URL(safeUrl);
+      const currentParams = new URLSearchParams(url.search);
+      const nextParams = new URLSearchParams();
+      nextParams.set("utm_source", currentParams.get("utm_source") || "alocoupon");
+      currentParams.delete("utm_source");
+      currentParams.forEach((paramValue, key) => {
+        nextParams.append(key, paramValue);
+      });
+      url.search = nextParams.toString();
+      return url.href;
+    }
+
+    function getAloCouponTrackingUrl(value) {
+      const affiliateUrl = addAloCouponUtmToAffiliate(value);
+      if (affiliateUrl === "#") return "#";
+      return \`/go?utm_source=alocoupon&url=\${encodeURIComponent(affiliateUrl)}\`;
     }
 
     function getAloCouponAffiliateUrl(value) {
@@ -578,7 +611,7 @@ function handleAffiliateRedirect(url, res) {
   const pathTarget = url.pathname.startsWith("/go/")
     ? `https://${url.pathname.slice("/go/".length)}${url.search}`
     : "";
-  const target = getSafeAffiliateUrl(url.searchParams.get("url") || pathTarget);
+  const target = addAloCouponUtmToAffiliate(url.searchParams.get("url") || pathTarget);
   if (target === "#") {
     send(res, 400, "Invalid affiliate link");
     return;

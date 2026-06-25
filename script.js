@@ -540,6 +540,10 @@ function handleAloCouponRedirectPage() {
 handleAloCouponRedirectPage();
 
 function openAffiliateLinkAfterDelay(url) {
+  if (url.startsWith("/") || url.startsWith(window.location.origin)) {
+    window.history.pushState({}, "", url);
+  }
+
   window.setTimeout(() => {
     window.location.href = url;
   }, 2000);

@@ -87,6 +87,15 @@ function sendJson(res, status, payload) {
   send(res, status, JSON.stringify(payload), "application/json; charset=utf-8");
 }
 
+function getSafeAffiliateUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+  } catch {
+    return "#";
+  }
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -348,6 +357,20 @@ function adminPage(adminEmail = "") {
       return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
     }
 
+    function getSafeAffiliateUrl(value) {
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+      } catch {
+        return "#";
+      }
+    }
+
+    function getAloCouponAffiliateUrl(value) {
+      const safeUrl = getSafeAffiliateUrl(value);
+      return safeUrl === "#" ? "#" : \`/go?url=\${encodeURIComponent(safeUrl)}\`;
+    }
+
     function resetFormMode() {
       form.reset();
       form.elements.id.value = "";
@@ -396,7 +419,7 @@ function adminPage(adminEmail = "") {
           <div class="admin-offer-actions">
             <button class="button button-outline edit-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Edit</button>
             <button class="button button-outline delete-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Delete</button>
-            <a class="product-link" href="\${escapeHtml(offer.link)}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
+            <a class="product-link" href="\${escapeHtml(getAloCouponAffiliateUrl(offer.link))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
           </div>
         </article>\`
       ).join("") : \`<p class="admin-empty-state">No offers yet. Upload real partner data from the form above.</p>\`;
@@ -512,9 +535,27 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+function handleAffiliateRedirect(url, res) {
+  const target = getSafeAffiliateUrl(url.searchParams.get("url"));
+  if (target === "#") {
+    send(res, 400, "Invalid affiliate link");
+    return;
+  }
+
+  send(res, 302, "", "text/plain; charset=utf-8", {
+    "Location": target,
+    "Referrer-Policy": "origin-when-cross-origin",
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
+
+    if (req.method === "GET" && url.pathname === "/go") {
+      handleAffiliateRedirect(url, res);
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/healthz") {
       sendJson(res, 200, { ok: true });

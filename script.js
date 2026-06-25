@@ -521,6 +521,24 @@ function getSafeAffiliateUrl(value) {
   }
 }
 
+function getAloCouponAffiliateUrl(value) {
+  const safeUrl = getSafeAffiliateUrl(value);
+  return safeUrl === "#" ? "#" : `/go?url=${encodeURIComponent(safeUrl)}`;
+}
+
+function handleAloCouponRedirectPage() {
+  if (window.location.pathname !== "/go") {
+    return;
+  }
+
+  const target = getSafeAffiliateUrl(new URLSearchParams(window.location.search).get("url"));
+  if (target !== "#") {
+    window.location.replace(target);
+  }
+}
+
+handleAloCouponRedirectPage();
+
 function normalizeStoreKey(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -586,7 +604,7 @@ function createAffiliateCard(item, index) {
   const article = document.createElement("article");
   article.className = "admin-offer-card";
 
-  const safeLink = getSafeAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -625,7 +643,7 @@ function createUploadedDealCard(item, index) {
   const article = document.createElement("article");
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
-  const safeLink = getSafeAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -724,7 +742,7 @@ function createLiveCouponRow(item) {
   article.dataset.couponType = `${kind === "deal" ? "deal" : "code"} verified`;
 
   const code = escapeHtml(rawCode);
-  const safeLink = getSafeAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const title = escapeHtml(item.title);
   const review = escapeHtml(item.review);
   const discount = getDiscountParts(item.discount);

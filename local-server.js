@@ -96,6 +96,19 @@ function getSafeAffiliateUrl(value) {
   }
 }
 
+function addAloCouponUtm(value) {
+  const safeUrl = getSafeAffiliateUrl(value);
+  if (safeUrl === "#") {
+    return "#";
+  }
+
+  const url = new URL(safeUrl);
+  if (!url.searchParams.has("utm_source")) {
+    url.searchParams.set("utm_source", "alocoupon");
+  }
+  return url.href;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -382,14 +395,30 @@ function adminPage(adminEmail = "") {
       return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
     }
 
-    function slugify(value) {
-      return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    function getSafeAffiliateUrl(value) {
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+      } catch {
+        return "#";
+      }
     }
 
-    function getOfferDealUrl(offer) {
-      const base = slugify([offer.brand, offer.title].filter(Boolean).join(" ")) || "deal";
-      const id = slugify(offer.id) || slugify(offer.link);
-      return \`/deal/\${base}-\${id}\`;
+    function addAloCouponUtm(value) {
+      const safeUrl = getSafeAffiliateUrl(value);
+      if (safeUrl === "#") return "#";
+      const url = new URL(safeUrl);
+      if (!url.searchParams.has("utm_source")) {
+        url.searchParams.set("utm_source", "alocoupon");
+      }
+      return url.href;
+    }
+
+    function getAloCouponAffiliateUrl(value) {
+      const safeUrl = addAloCouponUtm(value);
+      if (safeUrl === "#") return "#";
+      const url = new URL(safeUrl);
+      return \`/go/\${url.hostname}\${url.pathname}\${url.search}\${url.hash}\`;
     }
 
     function resetFormMode() {
@@ -440,7 +469,7 @@ function adminPage(adminEmail = "") {
           <div class="admin-offer-actions">
             <button class="button button-outline edit-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Edit</button>
             <button class="button button-outline delete-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Delete</button>
-            <a class="product-link" href="\${escapeHtml(getOfferDealUrl(offer))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
+            <a class="product-link" href="\${escapeHtml(getAloCouponAffiliateUrl(offer.link))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
           </div>
         </article>\`
       ).join("") : \`<p class="admin-empty-state">No offers yet. Upload real partner data from the form above.</p>\`;
@@ -560,35 +589,14 @@ function handleAffiliateRedirect(url, res) {
   const pathTarget = url.pathname.startsWith("/go/")
     ? `https://${url.pathname.slice("/go/".length)}${url.search}`
     : "";
-  const target = getSafeAffiliateUrl(url.searchParams.get("url") || pathTarget);
+  const target = addAloCouponUtm(url.searchParams.get("url") || pathTarget);
   if (target === "#") {
     send(res, 400, "Invalid affiliate link");
     return;
   }
 
-  const safeTarget = escapeHtml(target);
-  send(res, 200, `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <title>AloCoupon Affiliate Link</title>
-  <style>
-    body { align-items: center; background: #f4fbf8; color: #1f2937; display: flex; font-family: Arial, sans-serif; justify-content: center; margin: 0; min-height: 100vh; }
-    main { background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(31, 41, 55, .12); max-width: 560px; padding: 32px; text-align: center; width: calc(100% - 32px); }
-    strong { color: #0f8f5d; display: block; font-size: 18px; margin-bottom: 10px; }
-    a { color: #0f8f5d; font-weight: 700; overflow-wrap: anywhere; }
-  </style>
-</head>
-<body>
-  <main>
-    <strong>AloCoupon affiliate link</strong>
-    <p>This AloCoupon URL keeps the affiliate destination attached after the domain.</p>
-    <p><a href="${safeTarget}" rel="sponsored noopener">Open affiliate link</a></p>
-  </main>
-</body>
-</html>`, "text/html; charset=utf-8", {
+  send(res, 302, "", "text/plain; charset=utf-8", {
+    "Location": target,
     "Referrer-Policy": "origin-when-cross-origin",
   });
 }

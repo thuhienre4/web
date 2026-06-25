@@ -521,8 +521,21 @@ function getSafeAffiliateUrl(value) {
   }
 }
 
-function getAloCouponAffiliateUrl(value) {
+function addAloCouponUtm(value) {
   const safeUrl = getSafeAffiliateUrl(value);
+  if (safeUrl === "#") {
+    return "#";
+  }
+
+  const url = new URL(safeUrl);
+  if (!url.searchParams.has("utm_source")) {
+    url.searchParams.set("utm_source", "alocoupon");
+  }
+  return url.href;
+}
+
+function getAloCouponAffiliateUrl(value) {
+  const safeUrl = addAloCouponUtm(value);
   if (safeUrl === "#") {
     return "#";
   }
@@ -550,18 +563,12 @@ function handleAloCouponRedirectPage() {
     return;
   }
 
-  const target = getSafeAffiliateUrl(
+  const target = addAloCouponUtm(
     new URLSearchParams(window.location.search).get("url") ||
     `https://${window.location.pathname.slice("/go/".length)}${window.location.search}${window.location.hash}`
   );
   if (target !== "#") {
-    document.body.innerHTML = `
-      <main class="redirect-page">
-        <strong>AloCoupon affiliate link</strong>
-        <p>This AloCoupon URL keeps the affiliate destination attached.</p>
-        <p><a href="${escapeHtml(target)}" rel="sponsored noopener">Open affiliate link</a></p>
-      </main>
-    `;
+    window.location.replace(target);
   }
 }
 
@@ -652,7 +659,7 @@ function createAffiliateCard(item, index) {
   const article = document.createElement("article");
   article.className = "admin-offer-card";
 
-  const safeLink = getOfferDealUrl(item);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -691,7 +698,7 @@ function createUploadedDealCard(item, index) {
   const article = document.createElement("article");
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
-  const safeLink = getOfferDealUrl(item);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(item.brand);
   const title = escapeHtml(item.title);
   const rawCode = String(item.code || "").trim();
@@ -790,7 +797,7 @@ function createLiveCouponRow(item) {
   article.dataset.couponType = `${kind === "deal" ? "deal" : "code"} verified`;
 
   const code = escapeHtml(rawCode);
-  const safeLink = getOfferDealUrl(item);
+  const safeLink = getAloCouponAffiliateUrl(item.link);
   const title = escapeHtml(item.title);
   const review = escapeHtml(item.review);
   const discount = getDiscountParts(item.discount);

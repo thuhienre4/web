@@ -436,7 +436,7 @@ function adminPage(adminEmail = "") {
     function getAloCouponTrackingUrl(value) {
       const affiliateUrl = addAloCouponUtmToAffiliate(value);
       if (affiliateUrl === "#") return "#";
-      return \`/go?utm_source=alocoupon&url=\${encodeURIComponent(affiliateUrl)}\`;
+      return \`\${window.location.origin}/go?utm_source=alocoupon&url=\${encodeURIComponent(affiliateUrl)}\`;
     }
 
     function getAloCouponAffiliateUrl(value) {

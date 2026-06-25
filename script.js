@@ -545,7 +545,7 @@ function getAloCouponTrackingUrl(value) {
     return "#";
   }
 
-  return `/go?utm_source=alocoupon&url=${encodeURIComponent(affiliateUrl)}`;
+  return `${window.location.origin}/go?utm_source=alocoupon&url=${encodeURIComponent(affiliateUrl)}`;
 }
 
 function getAloCouponAffiliateUrl(value) {

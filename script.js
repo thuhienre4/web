@@ -347,7 +347,7 @@ function bindCouponButton(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening product link in 2 seconds.");
+      showToast("AloCoupon tracking link is ready.");
       return;
     }
 
@@ -533,7 +533,13 @@ function handleAloCouponRedirectPage() {
 
   const target = getSafeAffiliateUrl(new URLSearchParams(window.location.search).get("url"));
   if (target !== "#") {
-    window.location.replace(target);
+    document.body.innerHTML = `
+      <main class="redirect-page">
+        <strong>AloCoupon affiliate link</strong>
+        <p>This AloCoupon URL keeps the affiliate destination attached.</p>
+        <p><a href="${escapeHtml(target)}" rel="sponsored noopener">Open affiliate link</a></p>
+      </main>
+    `;
   }
 }
 
@@ -543,10 +549,6 @@ function openAffiliateLinkAfterDelay(url) {
   if (url.startsWith("/") || url.startsWith(window.location.origin)) {
     window.history.pushState({}, "", url);
   }
-
-  window.setTimeout(() => {
-    window.location.href = url;
-  }, 2000);
 }
 
 document.addEventListener("click", (event) => {
@@ -561,7 +563,7 @@ document.addEventListener("click", (event) => {
   }
 
   event.preventDefault();
-  showToast("Opening product link in 2 seconds.");
+  showToast("AloCoupon tracking link is ready.");
   openAffiliateLinkAfterDelay(href);
 });
 
@@ -741,7 +743,7 @@ function bindStoreCouponAction(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening product link in 2 seconds.");
+      showToast("AloCoupon tracking link is ready.");
       return;
     }
 
@@ -914,7 +916,7 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
     if (safeLink !== "#") {
       openAffiliateLinkAfterDelay(safeLink);
     }
-    showToast("Opening product link in 2 seconds.");
+    showToast("AloCoupon tracking link is ready.");
     return;
   }
 

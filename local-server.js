@@ -542,8 +542,29 @@ function handleAffiliateRedirect(url, res) {
     return;
   }
 
-  send(res, 302, "", "text/plain; charset=utf-8", {
-    "Location": target,
+  const safeTarget = escapeHtml(target);
+  send(res, 200, `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>AloCoupon Affiliate Link</title>
+  <style>
+    body { align-items: center; background: #f4fbf8; color: #1f2937; display: flex; font-family: Arial, sans-serif; justify-content: center; margin: 0; min-height: 100vh; }
+    main { background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(31, 41, 55, .12); max-width: 560px; padding: 32px; text-align: center; width: calc(100% - 32px); }
+    strong { color: #0f8f5d; display: block; font-size: 18px; margin-bottom: 10px; }
+    a { color: #0f8f5d; font-weight: 700; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <strong>AloCoupon affiliate link</strong>
+    <p>This AloCoupon URL keeps the affiliate destination attached.</p>
+    <p><a href="${safeTarget}" rel="sponsored noopener">Open affiliate link</a></p>
+  </main>
+</body>
+</html>`, "text/html; charset=utf-8", {
     "Referrer-Policy": "origin-when-cross-origin",
   });
 }

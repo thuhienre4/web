@@ -536,7 +536,10 @@ function serveStatic(req, res, pathname) {
 }
 
 function handleAffiliateRedirect(url, res) {
-  const target = getSafeAffiliateUrl(url.searchParams.get("url"));
+  const pathTarget = url.pathname.startsWith("/go/")
+    ? `https://${url.pathname.slice("/go/".length)}${url.search}`
+    : "";
+  const target = getSafeAffiliateUrl(url.searchParams.get("url") || pathTarget);
   if (target === "#") {
     send(res, 400, "Invalid affiliate link");
     return;
@@ -560,7 +563,7 @@ function handleAffiliateRedirect(url, res) {
 <body>
   <main>
     <strong>AloCoupon affiliate link</strong>
-    <p>This AloCoupon URL keeps the affiliate destination attached.</p>
+    <p>This AloCoupon URL keeps the affiliate destination attached after the domain.</p>
     <p><a href="${safeTarget}" rel="sponsored noopener">Open affiliate link</a></p>
   </main>
 </body>
@@ -573,7 +576,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
 
-    if (req.method === "GET" && url.pathname === "/go") {
+    if (req.method === "GET" && (url.pathname === "/go" || url.pathname.startsWith("/go/"))) {
       handleAffiliateRedirect(url, res);
       return;
     }

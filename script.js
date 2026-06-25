@@ -523,15 +523,23 @@ function getSafeAffiliateUrl(value) {
 
 function getAloCouponAffiliateUrl(value) {
   const safeUrl = getSafeAffiliateUrl(value);
-  return safeUrl === "#" ? "#" : `/go?url=${encodeURIComponent(safeUrl)}`;
+  if (safeUrl === "#") {
+    return "#";
+  }
+
+  const url = new URL(safeUrl);
+  return `/go/${url.hostname}${url.pathname}${url.search}${url.hash}`;
 }
 
 function handleAloCouponRedirectPage() {
-  if (window.location.pathname !== "/go") {
+  if (window.location.pathname !== "/go" && !window.location.pathname.startsWith("/go/")) {
     return;
   }
 
-  const target = getSafeAffiliateUrl(new URLSearchParams(window.location.search).get("url"));
+  const target = getSafeAffiliateUrl(
+    new URLSearchParams(window.location.search).get("url") ||
+    `https://${window.location.pathname.slice("/go/".length)}${window.location.search}${window.location.hash}`
+  );
   if (target !== "#") {
     document.body.innerHTML = `
       <main class="redirect-page">

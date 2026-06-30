@@ -646,8 +646,32 @@ function cleanBrandName(value) {
     .trim() || "Partner Store";
 }
 
+function getPrettyBrandName(value) {
+  const brand = cleanBrandName(value);
+  if (!brand.includes(".")) {
+    return brand;
+  }
+
+  return brand
+    .replace(/\.(com|net|org|co|io|eu|shop|store|myshopify\.com)$/i, "")
+    .split(/[.-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || brand;
+}
+
+function getOfferBrandName(item) {
+  const text = String(item?.review || item?.title || "");
+  const atMatch = text.match(/\bat\s+([^()]+?)(?:\s+w\/code|\s+with\b|\s+coupon\b|\s+code\b|$)/i);
+  if (atMatch?.[1]) {
+    return atMatch[1].trim();
+  }
+
+  return getPrettyBrandName(item?.brand);
+}
+
 function getDisplayOfferTitle(item) {
-  const brand = cleanBrandName(item?.brand);
+  const brand = getOfferBrandName(item);
   const discount = String(item?.discount || "").trim();
   const code = String(item?.code || "").trim();
   const review = String(item?.review || item?.title || "").trim();
@@ -700,7 +724,7 @@ function createAffiliateCard(item, index) {
   article.className = "admin-offer-card";
 
   const safeLink = getAloCouponAffiliateUrl(item.link);
-  const brand = escapeHtml(cleanBrandName(item.brand));
+  const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
   const rawCode = String(item.code || "").trim();
   const code = escapeHtml(rawCode);
@@ -739,7 +763,7 @@ function createUploadedDealCard(item, index) {
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
   const safeLink = getAloCouponAffiliateUrl(item.link);
-  const brand = escapeHtml(cleanBrandName(item.brand));
+  const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
   const rawCode = String(item.code || "").trim();
   const code = escapeHtml(rawCode);
@@ -752,6 +776,8 @@ function createUploadedDealCard(item, index) {
   const mediaClass = mediaClasses[index % mediaClasses.length];
   const hasCode = isUsableCouponCode(rawCode);
   const codeLabel = hasCode ? code : "No code needed";
+  const offerType = hasCode ? "Coupon" : "Deal";
+  const timingLabel = item.expiry ? expiry : "Active now";
 
   article.dataset.searchable = [
     brand,
@@ -765,7 +791,7 @@ function createUploadedDealCard(item, index) {
 
   article.innerHTML = `
     <div class="deal-media ${mediaClass}">
-      <span class="deal-badge">${category}</span>
+      <span class="deal-badge">${offerType}</span>
       <strong>${discount}</strong>
       <small>${brand}</small>
     </div>
@@ -777,7 +803,7 @@ function createUploadedDealCard(item, index) {
         <span>${hasCode ? "Coupon code" : "Deal type"}</span>
         <strong>${codeLabel}</strong>
       </div>
-      <div class="price-line"><span>${discount}</span><small>${expiry}</small></div>
+      <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Product Link</a>
     </div>
@@ -845,7 +871,7 @@ function createLiveCouponRow(item) {
 
   const code = escapeHtml(rawCode);
   const safeLink = getAloCouponAffiliateUrl(item.link);
-  const brand = escapeHtml(cleanBrandName(item.brand));
+  const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
   const review = escapeHtml(getOfferSummary(item));
   const discount = getDiscountParts(item.discount);

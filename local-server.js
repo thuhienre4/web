@@ -151,13 +151,37 @@ function cleanBrandName(value) {
     .trim() || "Partner Store";
 }
 
+function getPrettyBrandName(value) {
+  const brand = cleanBrandName(value);
+  if (!brand.includes(".")) {
+    return brand;
+  }
+
+  return brand
+    .replace(/\.(com|net|org|co|io|eu|shop|store|myshopify\.com)$/i, "")
+    .split(/[.-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || brand;
+}
+
+function getOfferBrandName(offer) {
+  const text = String(offer.review || offer.title || "");
+  const atMatch = text.match(/\bat\s+([^()]+?)(?:\s+w\/code|\s+with\b|\s+coupon\b|\s+code\b|$)/i);
+  if (atMatch?.[1]) {
+    return atMatch[1].trim();
+  }
+
+  return getPrettyBrandName(offer.brand);
+}
+
 function isUsableCouponCode(code) {
   const normalized = String(code || "").trim().toUpperCase();
   return Boolean(normalized && !["DEAL", "NO CODE", "NO-CODE"].includes(normalized));
 }
 
 function getDisplayOfferTitle(offer) {
-  const brand = cleanBrandName(offer.brand);
+  const brand = getOfferBrandName(offer);
   const discount = String(offer.discount || "").trim();
   const code = String(offer.code || "").trim();
   const review = String(offer.review || offer.title || "").trim();
@@ -424,7 +448,7 @@ function dealStructuredData(offer) {
         ...(validThrough ? { "validThrough": validThrough } : {}),
         "seller": {
           "@type": "Organization",
-          "name": cleanBrandName(offer.brand),
+          "name": getOfferBrandName(offer),
         },
       },
     ],
@@ -826,7 +850,7 @@ function handleAffiliateRedirect(url, res) {
 
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
-  const brand = escapeHtml(cleanBrandName(offer.brand));
+  const brand = escapeHtml(getOfferBrandName(offer));
   const title = escapeHtml(getDisplayOfferTitle(offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");

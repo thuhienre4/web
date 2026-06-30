@@ -990,6 +990,34 @@ function filterDeals(query = "") {
   }
 }
 
+function syncDealCategoryControls() {
+  document.querySelectorAll("[data-deal-category], .deal-category-chip").forEach((item) => {
+    const category = item.dataset.dealCategory || item.dataset.category || "all";
+    const isActive = category === activeDealCategory;
+    item.classList.toggle("is-active", isActive);
+    if (item.tagName === "A" || item.tagName === "BUTTON") {
+      item.setAttribute("aria-pressed", String(isActive));
+    }
+  });
+}
+
+function setActiveDealCategory(category = "all", options = {}) {
+  activeDealCategory = category || "all";
+  syncDealCategoryControls();
+  filterDeals(document.querySelector(".search-box input")?.value || "");
+
+  if (options.scroll) {
+    document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  if (options.toast) {
+    const label = document.querySelector(`[data-deal-category="${activeDealCategory}"]`)?.textContent?.trim()
+      || document.querySelector(`.deal-category-chip[data-category="${activeDealCategory}"] span`)?.textContent?.trim()
+      || "All Deals";
+    showToast(`Showing ${label}.`);
+  }
+}
+
 function renderDealCategoryFilters(items) {
   if (!dealCategoryFilterEl) {
     return;
@@ -1024,13 +1052,11 @@ function renderDealCategoryFilters(items) {
 
   dealCategoryFilterEl.querySelectorAll(".deal-category-chip").forEach((button) => {
     button.addEventListener("click", () => {
-      activeDealCategory = button.dataset.category || "all";
-      dealCategoryFilterEl.querySelectorAll(".deal-category-chip").forEach((item) => {
-        item.classList.toggle("is-active", item === button);
-      });
-      filterDeals(document.querySelector(".search-box input")?.value || "");
+      setActiveDealCategory(button.dataset.category || "all");
     });
   });
+
+  syncDealCategoryControls();
 }
 
 async function renderUploadedDealsInMainGrid() {
@@ -1046,6 +1072,13 @@ async function renderUploadedDealsInMainGrid() {
   });
   filterDeals(document.querySelector(".search-box input")?.value || "");
 }
+
+document.querySelectorAll("[data-deal-category]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    setActiveDealCategory(link.dataset.dealCategory || "all", { scroll: true, toast: true });
+  });
+});
 
 async function renderAffiliateItems() {
   if (!affiliateItemsEl) {

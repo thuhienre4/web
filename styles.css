@@ -709,11 +709,16 @@ h3 {
   min-width: 0;
 }
 
+.coupon-brand-line {
+  margin-bottom: 7px;
+}
+
 .verified-label {
-  margin: 0 0 6px;
-  color: #05a324;
+  margin: 0;
+  color: #0f8f5d;
   font-size: 0.82rem;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .coupon-copy h3 {
@@ -1024,10 +1029,46 @@ h3 {
 
 .store-name {
   margin: 0;
-  color: var(--green-dark);
+  color: #0f5132;
+  font-size: 0.82rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.brand-highlight,
+.coupon-brand-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.brand-highlight {
+  padding: 8px 10px;
+  background: #eefaf4;
+  border: 1px solid #cceedd;
+  border-radius: 6px;
+}
+
+.brand-initials {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--white);
+  background: var(--green-dark);
+  border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 900;
-  text-transform: uppercase;
+}
+
+.brand-initials.small {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  font-size: 0.68rem;
 }
 
 .product-desc {

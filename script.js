@@ -737,6 +737,7 @@ function createAffiliateCard(item, index) {
   const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
+  const initials = escapeHtml(getStoreInitials(getOfferBrandName(item)));
   const rawCode = String(item.code || "").trim();
   const code = escapeHtml(rawCode);
   const discount = escapeHtml(item.discount);
@@ -808,7 +809,10 @@ function createUploadedDealCard(item, index) {
       <small>${brand}</small>
     </div>
     <div class="deal-content">
-      <p class="store-name">${brand}</p>
+      <div class="brand-highlight">
+        <span class="brand-initials">${initials}</span>
+        <p class="store-name">${brand}</p>
+      </div>
       <h3>${title}</h3>
       <p class="product-desc">${review}</p>
       <div class="coupon-code-line">
@@ -887,11 +891,15 @@ function createLiveCouponRow(item) {
   const title = escapeHtml(getDisplayOfferTitle(item));
   const review = escapeHtml(getOfferSummary(item));
   const discount = getDiscountParts(item.discount);
+  const initials = escapeHtml(getStoreInitials(getOfferBrandName(item)));
 
   article.innerHTML = `
     <div class="coupon-discount">${escapeHtml(discount.main)}${discount.sub ? `<span>${escapeHtml(discount.sub)}</span>` : ""}</div>
     <div class="coupon-copy">
-      <p class="verified-label">${brand} &middot; Verified ${typeLabel}</p>
+      <div class="coupon-brand-line">
+        <span class="brand-initials small">${initials}</span>
+        <p class="verified-label">${brand} &middot; Verified ${typeLabel}</p>
+      </div>
       <h3>${title}</h3>
       <p>${review}</p>
     </div>

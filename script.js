@@ -470,6 +470,7 @@ document.querySelectorAll(".store-coupon-action").forEach((button) => {
 const affiliateItemsEl = document.querySelector("#affiliate-items");
 const dealSearchResultsEl = document.querySelector("#deal-search-results");
 const dealEmptyStateEl = document.querySelector("#deal-empty-state");
+const dealCategoryFilterEl = document.querySelector("#deal-category-filter");
 const liveCouponListEl = document.querySelector("#live-coupon-list");
 const liveStoreInitialsEl = document.querySelector("#live-store-initials");
 const liveStoreNameEl = document.querySelector("#live-store-name");
@@ -484,6 +485,7 @@ const liveAboutTitleEl = document.querySelector("#live-about-title");
 const liveAboutCopyEl = document.querySelector("#live-about-copy");
 const starterAffiliateItems = [];
 const featuredCouponItems = [];
+let activeDealCategory = "all";
 
 async function getAffiliateItems() {
   if (window.location.protocol === "file:") {
@@ -604,6 +606,15 @@ document.addEventListener("click", (event) => {
 
 function normalizeStoreKey(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeCategoryKey(value) {
+  return String(value || "Other")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "other";
 }
 
 function isUsableCouponCode(code) {
@@ -788,6 +799,7 @@ function createUploadedDealCard(item, index) {
     expiry,
     review
   ].join(" ").toLowerCase();
+  article.dataset.category = normalizeCategoryKey(item.category || "Other");
 
   article.innerHTML = `
     <div class="deal-media ${mediaClass}">
@@ -966,7 +978,9 @@ function filterDeals(query = "") {
 
   deals.forEach((deal) => {
     const haystack = `${deal.dataset.searchable || ""} ${deal.textContent || ""}`.toLowerCase();
-    const isMatch = !normalizedQuery || haystack.includes(normalizedQuery);
+    const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
+    const matchesCategory = activeDealCategory === "all" || deal.dataset.category === activeDealCategory;
+    const isMatch = matchesQuery && matchesCategory;
     deal.hidden = !isMatch;
     if (isMatch) visibleCount += 1;
   });
@@ -976,6 +990,49 @@ function filterDeals(query = "") {
   }
 }
 
+function renderDealCategoryFilters(items) {
+  if (!dealCategoryFilterEl) {
+    return;
+  }
+
+  const groups = new Map();
+  items.forEach((item) => {
+    const label = String(item.category || "Other").trim() || "Other";
+    const key = normalizeCategoryKey(label);
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, count: 0 });
+    }
+    groups.get(key).count += 1;
+  });
+
+  const orderedGroups = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const buttons = [
+    { key: "all", label: "All", count: items.length },
+    ...orderedGroups,
+  ];
+
+  if (activeDealCategory !== "all" && !groups.has(activeDealCategory)) {
+    activeDealCategory = "all";
+  }
+
+  dealCategoryFilterEl.innerHTML = buttons.map((item) => `
+    <button class="deal-category-chip${item.key === activeDealCategory ? " is-active" : ""}" type="button" data-category="${escapeHtml(item.key)}">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${item.count}</strong>
+    </button>
+  `).join("");
+
+  dealCategoryFilterEl.querySelectorAll(".deal-category-chip").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeDealCategory = button.dataset.category || "all";
+      dealCategoryFilterEl.querySelectorAll(".deal-category-chip").forEach((item) => {
+        item.classList.toggle("is-active", item === button);
+      });
+      filterDeals(document.querySelector(".search-box input")?.value || "");
+    });
+  });
+}
+
 async function renderUploadedDealsInMainGrid() {
   if (!dealSearchResultsEl) {
     return;
@@ -983,6 +1040,7 @@ async function renderUploadedDealsInMainGrid() {
 
   dealSearchResultsEl.querySelectorAll(".uploaded-public-deal").forEach((item) => item.remove());
   const items = await getAffiliateItems();
+  renderDealCategoryFilters(items);
   items.forEach((item, index) => {
     dealSearchResultsEl.appendChild(createUploadedDealCard(item, index));
   });

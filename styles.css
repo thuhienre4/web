@@ -875,6 +875,55 @@ h3 {
   gap: 16px;
 }
 
+.deal-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 18px 0 20px;
+}
+
+.deal-category-chip {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: #334155;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 900;
+  transition: background 180ms var(--ease), border-color 180ms var(--ease), color 180ms var(--ease), transform 180ms var(--ease);
+}
+
+.deal-category-chip strong {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  color: var(--green-dark);
+  background: var(--green-soft);
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.deal-category-chip:hover,
+.deal-category-chip.is-active {
+  color: var(--white);
+  background: var(--green);
+  border-color: var(--green);
+  transform: translateY(-1px);
+}
+
+.deal-category-chip:hover strong,
+.deal-category-chip.is-active strong {
+  color: #0f5132;
+  background: var(--white);
+}
+
 .deal-empty-state {
   color: var(--muted);
   font-size: 0.92rem;

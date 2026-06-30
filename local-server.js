@@ -143,6 +143,43 @@ function escapeXml(value) {
     .replaceAll("'", "&apos;");
 }
 
+function cleanBrandName(value) {
+  return String(value || "Partner Store")
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "")
+    .trim() || "Partner Store";
+}
+
+function isUsableCouponCode(code) {
+  const normalized = String(code || "").trim().toUpperCase();
+  return Boolean(normalized && !["DEAL", "NO CODE", "NO-CODE"].includes(normalized));
+}
+
+function getDisplayOfferTitle(offer) {
+  const brand = cleanBrandName(offer.brand);
+  const discount = String(offer.discount || "").trim();
+  const code = String(offer.code || "").trim();
+  const review = String(offer.review || offer.title || "").trim();
+
+  if (isUsableCouponCode(code)) {
+    return `${brand} Coupon Code ${code}${discount ? ` - ${discount}` : ""}`;
+  }
+
+  if (discount) {
+    return `${brand} Deal - ${discount}`;
+  }
+
+  return review || `${brand} Deal`;
+}
+
+function getOfferSummary(offer) {
+  const title = String(offer.title || "").trim();
+  const review = String(offer.review || "").trim();
+  const displayTitle = getDisplayOfferTitle(offer);
+  return review && review !== title && review !== displayTitle ? review : title || review || displayTitle;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -333,8 +370,8 @@ function jsonLdScript(payload) {
 function dealStructuredData(offer) {
   const dealPath = getOfferDealPath(offer);
   const dealUrl = getAbsoluteUrl(dealPath);
-  const title = [offer.brand, offer.title].filter(Boolean).join(" - ") || "AloCoupon Deal";
-  const description = offer.review || "Review this coupon offer before visiting the partner website.";
+  const title = getDisplayOfferTitle(offer);
+  const description = getOfferSummary(offer) || "Review this coupon offer before visiting the partner website.";
   const validThrough = offer.expiryDate || offer.expiresAt || undefined;
 
   return {
@@ -387,7 +424,7 @@ function dealStructuredData(offer) {
         ...(validThrough ? { "validThrough": validThrough } : {}),
         "seller": {
           "@type": "Organization",
-          "name": offer.brand || "Partner Store",
+          "name": cleanBrandName(offer.brand),
         },
       },
     ],
@@ -789,12 +826,12 @@ function handleAffiliateRedirect(url, res) {
 
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
-  const brand = escapeHtml(offer.brand || "Partner Store");
-  const title = escapeHtml(offer.title || "Affiliate Deal");
+  const brand = escapeHtml(cleanBrandName(offer.brand));
+  const title = escapeHtml(getDisplayOfferTitle(offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");
   const expiry = escapeHtml(offer.expiry || "Limited time");
-  const review = escapeHtml(offer.review || "Review this offer before visiting the partner website.");
+  const review = escapeHtml(getOfferSummary(offer) || "Review this offer before visiting the partner website.");
   const code = escapeHtml(offer.code || "No code needed");
   const hasCode = Boolean(String(offer.code || "").trim());
   const safeAffiliateLink = escapeHtml(affiliateLink);

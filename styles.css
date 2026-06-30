@@ -891,47 +891,86 @@ h3 {
 
 .deal-card {
   overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
   transition: transform 180ms var(--ease), box-shadow 180ms var(--ease);
 }
 
 .deal-media {
-  min-height: 126px;
+  position: relative;
+  min-height: 146px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 15px;
+  gap: 16px;
+  padding: 18px;
   color: var(--white);
-  background: #202a44;
+  background: linear-gradient(135deg, #17202a 0%, #26374d 100%);
+  isolation: isolate;
+}
+
+.deal-media::after {
+  position: absolute;
+  right: -34px;
+  bottom: -44px;
+  z-index: -1;
+  width: 124px;
+  height: 124px;
+  border: 18px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  content: "";
 }
 
 .deal-media.green {
-  background: var(--green-dark);
+  background: linear-gradient(135deg, #0d8752 0%, #20b26b 100%);
 }
 
 .deal-media.amber {
   color: #2d2100;
-  background: var(--amber);
+  background: linear-gradient(135deg, #f2b544 0%, #ffe08a 100%);
 }
 
 .deal-media strong {
-  font-size: 1.35rem;
+  max-width: 11ch;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
   font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.deal-media small {
+  font-size: 0.78rem;
+  font-weight: 900;
+  opacity: 0.86;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
 }
 
 .deal-badge {
   width: fit-content;
-  padding: 5px 9px;
-  background: rgba(255, 255, 255, 0.18);
+  max-width: 100%;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   font-size: 0.76rem;
   font-weight: 900;
+  overflow-wrap: anywhere;
   text-transform: uppercase;
 }
 
 .deal-content {
   display: grid;
-  gap: 9px;
-  padding: 16px;
+  align-content: start;
+  gap: 11px;
+  padding: 18px;
+}
+
+.deal-content h3 {
+  margin: 0;
+  color: #17202a;
+  font-size: 1.06rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .store-name {
@@ -943,26 +982,48 @@ h3 {
 }
 
 .product-desc {
-  min-height: 62px;
+  min-height: 52px;
   margin: 0;
   color: var(--muted);
   font-size: 0.91rem;
 }
 
-.price-line {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+.coupon-code-line {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px dashed #c9d5e1;
+  border-radius: 6px;
 }
 
-.price-line del {
+.coupon-code-line span,
+.price-line small {
   color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.coupon-code-line strong {
+  color: #17202a;
+  font-size: 0.98rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.price-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .price-line span {
   color: #111827;
-  font-size: 1.34rem;
+  font-size: 1.16rem;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .product-link {

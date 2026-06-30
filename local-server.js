@@ -20,6 +20,7 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -240,6 +241,10 @@ function getOfferDealPath(offer) {
   return `/deal/${getOfferDealSlug(offer)}`;
 }
 
+function getAbsoluteUrl(pathname = "/") {
+  return `${siteUrl}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
+}
+
 function getSitemapLastmod(value) {
   const date = new Date(value || Date.now());
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
@@ -248,7 +253,7 @@ function getSitemapLastmod(value) {
 function sitemapUrl(pathname, lastmod, priority = "0.7") {
   return [
     "  <url>",
-    `    <loc>${escapeXml(`${siteUrl}${pathname}`)}</loc>`,
+    `    <loc>${escapeXml(getAbsoluteUrl(pathname))}</loc>`,
     `    <lastmod>${escapeXml(getSitemapLastmod(lastmod))}</lastmod>`,
     "    <changefreq>daily</changefreq>",
     `    <priority>${priority}</priority>`,
@@ -279,6 +284,114 @@ function robotsTxt() {
     `Sitemap: ${siteUrl}/sitemap.xml`,
     "",
   ].join("\n");
+}
+
+function getRssDate(value) {
+  const date = new Date(value || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date().toUTCString() : date.toUTCString();
+}
+
+function rssXml() {
+  const offers = readOffers().slice(0, 50);
+  const items = offers
+    .map((offer) => {
+      const pathName = getOfferDealPath(offer);
+      const title = [offer.brand, offer.title].filter(Boolean).join(" - ") || "AloCoupon Deal";
+      const description = offer.review || offer.discount || "Latest coupon and affiliate deal from AloCoupon.";
+
+      return [
+        "    <item>",
+        `      <title>${escapeXml(title)}</title>`,
+        `      <link>${escapeXml(getAbsoluteUrl(pathName))}</link>`,
+        `      <guid isPermaLink="true">${escapeXml(getAbsoluteUrl(pathName))}</guid>`,
+        `      <description>${escapeXml(description)}</description>`,
+        `      <category>${escapeXml(offer.category || "Coupon")}</category>`,
+        `      <pubDate>${escapeXml(getRssDate(offer.createdAt))}</pubDate>`,
+        "    </item>",
+      ].join("\n");
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>AloCoupon Latest Deals</title>
+    <link>${escapeXml(getAbsoluteUrl("/"))}</link>
+    <description>Latest coupon codes, affiliate deals, store reviews, and product promotions from AloCoupon.</description>
+    <language>en-us</language>
+    <lastBuildDate>${escapeXml(getRssDate(Date.now()))}</lastBuildDate>
+${items}
+  </channel>
+</rss>
+`;
+}
+
+function jsonLdScript(payload) {
+  return `<script type="application/ld+json">${JSON.stringify(payload).replaceAll("</", "<\\/")}</script>`;
+}
+
+function dealStructuredData(offer) {
+  const dealPath = getOfferDealPath(offer);
+  const dealUrl = getAbsoluteUrl(dealPath);
+  const title = [offer.brand, offer.title].filter(Boolean).join(" - ") || "AloCoupon Deal";
+  const description = offer.review || "Review this coupon offer before visiting the partner website.";
+  const validThrough = offer.expiryDate || offer.expiresAt || undefined;
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${siteUrl}/#organization`,
+        "name": "AloCoupon",
+        "url": getAbsoluteUrl("/"),
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${dealUrl}#breadcrumb`,
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": getAbsoluteUrl("/"),
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": offer.category || "Deals",
+            "item": dealUrl,
+          },
+        ],
+      },
+      {
+        "@type": "Article",
+        "@id": `${dealUrl}#article`,
+        "headline": title,
+        "description": description,
+        "datePublished": getSitemapLastmod(offer.createdAt),
+        "dateModified": getSitemapLastmod(offer.updatedAt || offer.createdAt),
+        "mainEntityOfPage": dealUrl,
+        "publisher": {
+          "@id": `${siteUrl}/#organization`,
+        },
+      },
+      {
+        "@type": "Offer",
+        "@id": `${dealUrl}#offer`,
+        "name": title,
+        "description": description,
+        "url": dealUrl,
+        "category": offer.category || "Coupon",
+        "availability": "https://schema.org/InStock",
+        ...(validThrough ? { "validThrough": validThrough } : {}),
+        "seller": {
+          "@type": "Organization",
+          "name": offer.brand || "Partner Store",
+        },
+      },
+    ],
+  };
 }
 
 function normalizeOffers(offers) {
@@ -685,6 +798,8 @@ function dealPage(offer) {
   const code = escapeHtml(offer.code || "No code needed");
   const hasCode = Boolean(String(offer.code || "").trim());
   const safeAffiliateLink = escapeHtml(affiliateLink);
+  const dealUrl = escapeHtml(getAbsoluteUrl(getOfferDealPath(offer)));
+  const structuredData = jsonLdScript(dealStructuredData(offer));
 
   return `<!doctype html>
 <html lang="en">
@@ -694,6 +809,9 @@ function dealPage(offer) {
   <meta name="robots" content="index, follow" />
   <title>${title} | AloCoupon</title>
   <meta name="description" content="${review}" />
+  <link rel="canonical" href="${dealUrl}" />
+  <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="${escapeHtml(getAbsoluteUrl("/rss.xml"))}" />
+  ${structuredData}
   <link rel="stylesheet" href="/styles.css" />
   <style>
     body { background: #f4fbf8; color: #1f2937; font-family: Arial, sans-serif; margin: 0; }
@@ -772,6 +890,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/robots.txt") {
       send(res, 200, robotsTxt(), "text/plain; charset=utf-8");
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/rss.xml") {
+      send(res, 200, rssXml(), "application/rss+xml; charset=utf-8");
       return;
     }
 

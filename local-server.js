@@ -13,6 +13,7 @@ const offersFile = path.join(dataDir, "offers.json");
 const adminEmailsFile = path.join(dataDir, "admin-emails.json");
 const sessions = new Map();
 const isProduction = process.env.NODE_ENV === "production";
+const siteUrl = String(process.env.SITE_URL || "https://alocoupon.com").replace(/\/+$/, "");
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -132,6 +133,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeXml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -228,6 +238,47 @@ function getOfferDealSlug(offer) {
 
 function getOfferDealPath(offer) {
   return `/deal/${getOfferDealSlug(offer)}`;
+}
+
+function getSitemapLastmod(value) {
+  const date = new Date(value || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function sitemapUrl(pathname, lastmod, priority = "0.7") {
+  return [
+    "  <url>",
+    `    <loc>${escapeXml(`${siteUrl}${pathname}`)}</loc>`,
+    `    <lastmod>${escapeXml(getSitemapLastmod(lastmod))}</lastmod>`,
+    "    <changefreq>daily</changefreq>",
+    `    <priority>${priority}</priority>`,
+    "  </url>",
+  ].join("\n");
+}
+
+function sitemapXml() {
+  const offers = readOffers();
+  const urls = [
+    sitemapUrl("/", Date.now(), "1.0"),
+    ...offers.map((offer) => sitemapUrl(getOfferDealPath(offer), offer.createdAt, "0.8")),
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join("\n")}
+</urlset>
+`;
+}
+
+function robotsTxt() {
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /admin",
+    "Disallow: /api/",
+    `Sitemap: ${siteUrl}/sitemap.xml`,
+    "",
+  ].join("\n");
 }
 
 function normalizeOffers(offers) {
@@ -711,6 +762,16 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/healthz") {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/sitemap.xml") {
+      send(res, 200, sitemapXml(), "application/xml; charset=utf-8");
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/robots.txt") {
+      send(res, 200, robotsTxt(), "text/plain; charset=utf-8");
       return;
     }
 

@@ -1102,8 +1102,7 @@ h3 {
   border-radius: 6px;
 }
 
-.deal-full-details dt,
-.deal-affiliate-url span {
+.deal-full-details dt {
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 900;
@@ -1144,16 +1143,6 @@ h3 {
   color: #111827;
   font-size: 1.16rem;
   font-weight: 900;
-  overflow-wrap: anywhere;
-}
-
-.deal-affiliate-url {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  color: #334155;
-  font-size: 0.78rem;
-  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 

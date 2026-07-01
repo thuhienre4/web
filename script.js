@@ -846,7 +846,6 @@ function createUploadedDealCard(item, index) {
         <strong>${codeLabel}</strong>
       </div>
       <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
-      <p class="deal-affiliate-url"><span>Affiliate link</span>${rawLink}</p>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Product Link</a>
     </div>

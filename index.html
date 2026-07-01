@@ -375,33 +375,6 @@
             <a href="#deals" data-i18n="deals.link">Deals</a>
           </div>
           <p class="section-intro" data-i18n="deals.intro">Compare current promo codes, free trials, and limited-time savings before visiting each product website.</p>
-          <form class="upload-coupon-panel" id="deal-upload-form">
-            <div>
-              <p class="eyebrow">Admin upload</p>
-              <h3>Upload Coupon To Deals</h3>
-              <p>Add coupon codes, promotion codes, and affiliate deals so they appear in Deals Of Today and Coupon Store.</p>
-            </div>
-            <div class="upload-coupon-fields">
-              <input name="brand" type="text" placeholder="Brand" required />
-              <input name="title" type="text" placeholder="Promotion title" required />
-              <select name="type" aria-label="Offer type">
-                <option value="code">Coupon Code</option>
-                <option value="promotion">Promotion Code</option>
-                <option value="deal">Deal</option>
-              </select>
-              <input name="code" type="text" placeholder="Code, optional for deal" />
-              <input name="discount" type="text" placeholder="20% Off" required />
-              <input name="category" type="text" placeholder="Category" required />
-              <input name="link" type="url" placeholder="Affiliate link" required />
-              <input name="expiry" type="text" placeholder="Expiry note" />
-              <textarea name="review" rows="2" placeholder="Promotion summary" required></textarea>
-            </div>
-            <div class="upload-coupon-actions">
-              <button class="button button-primary" type="submit">Upload Coupon</button>
-              <a class="read-link" href="/admin">Admin login</a>
-              <p class="upload-coupon-status" id="deal-upload-status" role="status" aria-live="polite"></p>
-            </div>
-          </form>
           <div class="deal-category-filter" id="deal-category-filter" aria-label="Filter deals by category"></div>
           <div class="deal-grid" id="deal-search-results"></div>
           <p class="deal-empty-state" id="deal-empty-state">No real deals yet. Admin-approved offers will appear here.</p>

@@ -471,8 +471,6 @@ const affiliateItemsEl = document.querySelector("#affiliate-items");
 const dealSearchResultsEl = document.querySelector("#deal-search-results");
 const dealEmptyStateEl = document.querySelector("#deal-empty-state");
 const dealCategoryFilterEl = document.querySelector("#deal-category-filter");
-const dealUploadFormEl = document.querySelector("#deal-upload-form");
-const dealUploadStatusEl = document.querySelector("#deal-upload-status");
 const liveCouponListEl = document.querySelector("#live-coupon-list");
 const liveStoreInitialsEl = document.querySelector("#live-store-initials");
 const liveStoreNameEl = document.querySelector("#live-store-name");
@@ -1132,61 +1130,6 @@ async function renderAffiliateItems() {
     affiliateItemsEl.appendChild(createAffiliateCard(item, index));
   });
 }
-
-dealUploadFormEl?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const submitButton = dealUploadFormEl.querySelector("button[type='submit']");
-  const formData = new FormData(dealUploadFormEl);
-  const payload = Object.fromEntries(formData.entries());
-  const originalLabel = submitButton?.textContent || "Upload Coupon";
-
-  if (submitButton) {
-    submitButton.disabled = true;
-    submitButton.textContent = "Uploading...";
-  }
-  if (dealUploadStatusEl) {
-    dealUploadStatusEl.textContent = "";
-  }
-
-  try {
-    const response = await fetch("/api/offers", {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || "Upload failed.");
-    }
-
-    dealUploadFormEl.reset();
-    if (dealUploadStatusEl) {
-      dealUploadStatusEl.textContent = "Coupon uploaded to Deals.";
-    }
-    showToast("Coupon uploaded to Deals.");
-    await renderUploadedDealsInMainGrid();
-    await renderAffiliateItems();
-    await renderLiveCouponStore();
-  } catch (error) {
-    const message = error.message === "Admin login required."
-      ? "Please login admin first, then upload coupon here."
-      : error.message || "Upload failed.";
-    if (dealUploadStatusEl) {
-      dealUploadStatusEl.textContent = message;
-    }
-    showToast(message);
-  } finally {
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = originalLabel;
-    }
-  }
-});
 
 affiliateItemsEl?.addEventListener("click", async (event) => {
   const button = event.target.closest(".admin-copy-code");

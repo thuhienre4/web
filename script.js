@@ -777,6 +777,7 @@ function createUploadedDealCard(item, index) {
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
   const safeLink = getAloCouponAffiliateUrl(item.link);
+  const rawLink = escapeHtml(item.link || "");
   const brand = escapeHtml(getOfferBrandName(item));
   const initials = escapeHtml(getStoreInitials(getOfferBrandName(item)));
   const title = escapeHtml(getDisplayOfferTitle(item));
@@ -793,6 +794,9 @@ function createUploadedDealCard(item, index) {
   const codeLabel = hasCode ? code : "No code needed";
   const offerType = hasCode ? "Coupon" : "Deal";
   const timingLabel = item.expiry ? expiry : "Active now";
+  const uploadedAt = item.createdAt
+    ? escapeHtml(new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))
+    : "Uploaded offer";
 
   article.dataset.searchable = [
     brand,
@@ -801,7 +805,10 @@ function createUploadedDealCard(item, index) {
     discount,
     category,
     expiry,
-    review
+    review,
+    rawLink,
+    offerType,
+    uploadedAt
   ].join(" ").toLowerCase();
   article.dataset.category = normalizeCategoryKey(item.category || "Other");
 
@@ -818,11 +825,30 @@ function createUploadedDealCard(item, index) {
       </div>
       <h3>${title}</h3>
       <p class="product-desc">${review}</p>
+      <dl class="deal-full-details">
+        <div>
+          <dt>Offer type</dt>
+          <dd>${offerType}</dd>
+        </div>
+        <div>
+          <dt>Category</dt>
+          <dd>${category}</dd>
+        </div>
+        <div>
+          <dt>Expiry</dt>
+          <dd>${expiry}</dd>
+        </div>
+        <div>
+          <dt>Uploaded</dt>
+          <dd>${uploadedAt}</dd>
+        </div>
+      </dl>
       <div class="coupon-code-line">
         <span>${hasCode ? "Coupon code" : "Deal type"}</span>
         <strong>${codeLabel}</strong>
       </div>
       <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
+      <p class="deal-affiliate-url"><span>Affiliate link</span>${rawLink}</p>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Product Link</a>
     </div>

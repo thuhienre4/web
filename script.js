@@ -373,6 +373,9 @@ document.querySelectorAll(".claim-btn").forEach((button) => {
 document.querySelector(".search-box")?.addEventListener("submit", (event) => {
   event.preventDefault();
   const query = event.currentTarget.querySelector("input")?.value || "";
+  if (dealSearchInputEl) {
+    dealSearchInputEl.value = query;
+  }
   filterDeals(query);
   document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth" });
   showToast(query.trim() ? `Showing deals for "${query.trim()}".` : t("searchToast"));
@@ -471,6 +474,8 @@ const affiliateItemsEl = document.querySelector("#affiliate-items");
 const dealSearchResultsEl = document.querySelector("#deal-search-results");
 const dealEmptyStateEl = document.querySelector("#deal-empty-state");
 const dealCategoryFilterEl = document.querySelector("#deal-category-filter");
+const dealSearchInputEl = document.querySelector("#deal-search-input");
+const dealSortSelectEl = document.querySelector("#deal-sort-select");
 const liveCouponListEl = document.querySelector("#live-coupon-list");
 const liveStoreInitialsEl = document.querySelector("#live-store-initials");
 const liveStoreNameEl = document.querySelector("#live-store-name");
@@ -486,6 +491,8 @@ const liveAboutCopyEl = document.querySelector("#live-about-copy");
 const starterAffiliateItems = [];
 const featuredCouponItems = [];
 let activeDealCategory = "all";
+let activeDealType = "all";
+let lastAffiliateItems = [];
 
 async function getAffiliateItems() {
   if (window.location.protocol === "file:") {
@@ -730,6 +737,19 @@ function getBestOffer(items) {
   return items.find((item) => isUsableCouponCode(item.code))?.discount || items[0]?.discount || "Best Deal";
 }
 
+function getDiscountScore(discount) {
+  const value = String(discount || "").toLowerCase();
+  const percent = value.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (percent) {
+    return Number(percent[1]);
+  }
+  if (value.includes("free")) {
+    return 20;
+  }
+  const amount = value.match(/(?:\$|£|€)\s*(\d+(?:\.\d+)?)/);
+  return amount ? Math.min(Number(amount[1]), 99) / 2 : 0;
+}
+
 function createAffiliateCard(item, index) {
   const article = document.createElement("article");
   article.className = "admin-offer-card";
@@ -750,7 +770,7 @@ function createAffiliateCard(item, index) {
     <div class="admin-offer-top">
       <div>
         <p class="store-name">${brand}</p>
-        <h3>${title}</h3>
+        <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
       </div>
       <span class="coupon-pill">${discount}</span>
     </div>
@@ -789,7 +809,6 @@ function createUploadedDealCard(item, index) {
   const mediaClasses = ["", "green", "amber"];
   const mediaClass = mediaClasses[index % mediaClasses.length];
   const hasCode = isUsableCouponCode(rawCode);
-  const codeLabel = hasCode ? code : "No code needed";
   const offerType = hasCode ? "Coupon" : "Deal";
   const timingLabel = item.expiry ? expiry : "Active now";
   const uploadedAt = item.createdAt
@@ -809,6 +828,10 @@ function createUploadedDealCard(item, index) {
     uploadedAt
   ].join(" ").toLowerCase();
   article.dataset.category = normalizeCategoryKey(item.category || "Other");
+  article.dataset.originalIndex = String(index);
+  article.dataset.offerType = hasCode ? "coupon" : "deal";
+  article.dataset.discountScore = String(getDiscountScore(item.discount));
+  article.dataset.createdAt = item.createdAt ? String(new Date(item.createdAt).getTime()) : "0";
 
   article.innerHTML = `
     <div class="deal-media ${mediaClass}">
@@ -821,30 +844,8 @@ function createUploadedDealCard(item, index) {
         <span class="brand-initials">${initials}</span>
         <p class="store-name">${brand}</p>
       </div>
-      <h3>${title}</h3>
+      <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
       <p class="product-desc">${review}</p>
-      <dl class="deal-full-details">
-        <div>
-          <dt>Offer type</dt>
-          <dd>${offerType}</dd>
-        </div>
-        <div>
-          <dt>Category</dt>
-          <dd>${category}</dd>
-        </div>
-        <div>
-          <dt>Expiry</dt>
-          <dd>${expiry}</dd>
-        </div>
-        <div>
-          <dt>Uploaded</dt>
-          <dd>${uploadedAt}</dd>
-        </div>
-      </dl>
-      <div class="coupon-code-line">
-        <span>${hasCode ? "Coupon code" : "Deal type"}</span>
-        <strong>${codeLabel}</strong>
-      </div>
       <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Product Link</a>
@@ -926,7 +927,7 @@ function createLiveCouponRow(item) {
         <span class="brand-initials small">${initials}</span>
         <p class="verified-label">${brand} &middot; Verified ${typeLabel}</p>
       </div>
-      <h3>${title}</h3>
+      <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
       <p>${review}</p>
     </div>
     <button class="store-coupon-action" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
@@ -1007,16 +1008,37 @@ async function renderLiveCouponStore() {
 
 function filterDeals(query = "") {
   const normalizedQuery = query.trim().toLowerCase();
-  const deals = document.querySelectorAll("#deals .searchable-deal");
+  const deals = Array.from(document.querySelectorAll("#deals .searchable-deal"));
   let visibleCount = 0;
+  const sortMode = dealSortSelectEl?.value || "featured";
+
+  if (dealSearchResultsEl) {
+    deals
+      .sort((a, b) => {
+        const aIsCategory = activeDealCategory !== "all" && a.dataset.category === activeDealCategory;
+        const bIsCategory = activeDealCategory !== "all" && b.dataset.category === activeDealCategory;
+        if (aIsCategory !== bIsCategory) {
+          return aIsCategory ? -1 : 1;
+        }
+        if (sortMode === "discount") {
+          return Number(b.dataset.discountScore || 0) - Number(a.dataset.discountScore || 0);
+        }
+        if (sortMode === "latest") {
+          return Number(b.dataset.createdAt || 0) - Number(a.dataset.createdAt || 0);
+        }
+        return Number(a.dataset.originalIndex || 0) - Number(b.dataset.originalIndex || 0);
+      })
+      .forEach((deal) => dealSearchResultsEl.appendChild(deal));
+  }
 
   deals.forEach((deal) => {
     const haystack = `${deal.dataset.searchable || ""} ${deal.textContent || ""}`.toLowerCase();
     const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
+    const matchesType = activeDealType === "all" || deal.dataset.offerType === activeDealType;
     const matchesCategory = activeDealCategory === "all" || deal.dataset.category === activeDealCategory;
-    const isMatch = matchesQuery && matchesCategory;
-    deal.hidden = !isMatch;
-    if (isMatch) visibleCount += 1;
+    deal.hidden = !(matchesQuery && matchesType);
+    deal.classList.toggle("is-category-highlight", matchesQuery && matchesType && matchesCategory && activeDealCategory !== "all");
+    if (matchesQuery && matchesType) visibleCount += 1;
   });
 
   if (dealEmptyStateEl) {
@@ -1037,8 +1059,16 @@ function syncDealCategoryControls() {
 
 function setActiveDealCategory(category = "all", options = {}) {
   activeDealCategory = category || "all";
+  renderDealCategoryFilters(lastAffiliateItems);
   syncDealCategoryControls();
-  filterDeals(document.querySelector(".search-box input")?.value || "");
+  filterDeals(dealSearchInputEl?.value || document.querySelector(".search-box input")?.value || "");
+  Array.from(document.querySelectorAll(".deal-category-chip"))
+    .find((chip) => chip.dataset.category === activeDealCategory)
+    ?.scrollIntoView({
+    behavior: "smooth",
+    inline: "nearest",
+    block: "nearest"
+  });
 
   if (options.scroll) {
     document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1048,7 +1078,7 @@ function setActiveDealCategory(category = "all", options = {}) {
     const label = document.querySelector(`[data-deal-category="${activeDealCategory}"]`)?.textContent?.trim()
       || document.querySelector(`.deal-category-chip[data-category="${activeDealCategory}"] span`)?.textContent?.trim()
       || "All Deals";
-    showToast(`Showing ${label}.`);
+    showToast(activeDealCategory === "all" ? "Showing all deals." : `Highlighted ${label}.`);
   }
 }
 
@@ -1067,7 +1097,13 @@ function renderDealCategoryFilters(items) {
     groups.get(key).count += 1;
   });
 
-  const orderedGroups = Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const orderedGroups = Array.from(groups.values()).sort((a, b) => {
+    if (activeDealCategory !== "all") {
+      if (a.key === activeDealCategory) return -1;
+      if (b.key === activeDealCategory) return 1;
+    }
+    return b.count - a.count || a.label.localeCompare(b.label);
+  });
   const buttons = [
     { key: "all", label: "All", count: items.length },
     ...orderedGroups,
@@ -1100,12 +1136,33 @@ async function renderUploadedDealsInMainGrid() {
 
   dealSearchResultsEl.querySelectorAll(".uploaded-public-deal").forEach((item) => item.remove());
   const items = await getAffiliateItems();
+  lastAffiliateItems = items;
   renderDealCategoryFilters(items);
   items.forEach((item, index) => {
     dealSearchResultsEl.appendChild(createUploadedDealCard(item, index));
   });
-  filterDeals(document.querySelector(".search-box input")?.value || "");
+  filterDeals(dealSearchInputEl?.value || document.querySelector(".search-box input")?.value || "");
 }
+
+dealSearchInputEl?.addEventListener("input", (event) => {
+  filterDeals(event.currentTarget.value || "");
+});
+
+document.querySelectorAll(".deal-type-btn").forEach((button) => {
+  button.addEventListener("click", () => {
+    activeDealType = button.dataset.dealType || "all";
+    document.querySelectorAll(".deal-type-btn").forEach((item) => {
+      const isActive = item === button;
+      item.classList.toggle("is-active", isActive);
+      item.setAttribute("aria-pressed", String(isActive));
+    });
+    filterDeals(dealSearchInputEl?.value || "");
+  });
+});
+
+dealSortSelectEl?.addEventListener("change", () => {
+  filterDeals(dealSearchInputEl?.value || "");
+});
 
 document.querySelectorAll("[data-deal-category]").forEach((link) => {
   link.addEventListener("click", (event) => {

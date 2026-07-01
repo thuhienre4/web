@@ -380,6 +380,25 @@
             <a href="#deals" data-i18n="deals.link">Deals</a>
           </div>
           <p class="section-intro" data-i18n="deals.intro">Compare current promo codes, free trials, and limited-time savings before visiting each product website.</p>
+          <div class="deal-finder" aria-label="Find deals">
+            <label class="deal-finder-search">
+              <span>Find deal</span>
+              <input id="deal-search-input" type="search" placeholder="Store, code, discount..." aria-label="Search deals by store, code, or discount" />
+            </label>
+            <div class="deal-type-filter" aria-label="Deal type">
+              <button class="deal-type-btn is-active" type="button" data-deal-type="all">All</button>
+              <button class="deal-type-btn" type="button" data-deal-type="coupon">Coupon</button>
+              <button class="deal-type-btn" type="button" data-deal-type="deal">Deal</button>
+            </div>
+            <label class="deal-sort-control">
+              <span>Sort</span>
+              <select id="deal-sort-select" aria-label="Sort deals">
+                <option value="featured">Featured</option>
+                <option value="discount">Highest discount</option>
+                <option value="latest">Latest uploaded</option>
+              </select>
+            </label>
+          </div>
           <div class="deal-category-filter" id="deal-category-filter" aria-label="Filter deals by category"></div>
           <div class="deal-grid" id="deal-search-results"></div>
           <p class="deal-empty-state" id="deal-empty-state">No real deals yet. Admin-approved offers will appear here.</p>

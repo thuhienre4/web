@@ -887,6 +887,84 @@ h3 {
   margin: 18px 0 20px;
 }
 
+.upload-coupon-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.38fr) 1fr auto;
+  align-items: start;
+  gap: 18px;
+  margin: 18px 0 20px;
+  padding: 18px;
+  background: var(--white);
+  border: 1px solid #cceedd;
+  border-radius: 8px;
+}
+
+.upload-coupon-panel h3 {
+  margin: 3px 0 6px;
+  color: #17202a;
+  font-size: 1.08rem;
+  line-height: 1.2;
+}
+
+.upload-coupon-panel p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.upload-coupon-panel .button {
+  flex: 0 0 auto;
+}
+
+.upload-coupon-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.upload-coupon-fields input,
+.upload-coupon-fields select,
+.upload-coupon-fields textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: #17202a;
+  background: #f8fafc;
+  border: 1px solid #d7e2ea;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.upload-coupon-fields textarea {
+  grid-column: span 4;
+  min-height: 68px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.upload-coupon-fields input:focus,
+.upload-coupon-fields select:focus,
+.upload-coupon-fields textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(33, 181, 115, 0.14);
+}
+
+.upload-coupon-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.upload-coupon-status {
+  max-width: 180px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: right;
+}
+
 .deal-category-chip {
   min-height: 38px;
   display: inline-flex;
@@ -1410,6 +1488,7 @@ h3 {
   .trustpilot-panel,
   .store-detail-layout,
   .feature-post-card,
+  .upload-coupon-panel,
   .footer-grid {
     grid-template-columns: 1fr;
   }
@@ -1473,6 +1552,28 @@ h3 {
   .section-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .upload-coupon-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload-coupon-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-coupon-fields textarea {
+    grid-column: auto;
+  }
+
+  .upload-coupon-actions {
+    justify-items: stretch;
+  }
+
+  .upload-coupon-status {
+    max-width: none;
+    text-align: left;
   }
 
   .store-detail-section {

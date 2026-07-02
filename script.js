@@ -575,6 +575,10 @@ function getOfferDealUrl(item) {
   return `/deal/${base}-${id}`;
 }
 
+function getOfferStoreUrl(brand) {
+  return `/store/${slugify(brand) || "store"}`;
+}
+
 function handleAloCouponRedirectPage() {
   if (window.location.pathname !== "/go" && !window.location.pathname.startsWith("/go/")) {
     return;
@@ -622,6 +626,88 @@ function normalizeCategoryKey(value) {
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "other";
+}
+
+function normalizeDealSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function getEditDistance(a, b) {
+  const first = normalizeDealSearch(a);
+  const second = normalizeDealSearch(b);
+  if (!first) return second.length;
+  if (!second) return first.length;
+
+  const previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+  const current = Array(second.length + 1).fill(0);
+
+  for (let i = 1; i <= first.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= second.length; j += 1) {
+      const cost = first[i - 1] === second[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[second.length];
+}
+
+function getFuzzyTextScore(query, target) {
+  const normalizedQuery = normalizeDealSearch(query);
+  const normalizedTarget = normalizeDealSearch(target);
+  if (!normalizedQuery || !normalizedTarget) return 0;
+
+  if (normalizedTarget === normalizedQuery) return 180;
+  if (normalizedTarget.startsWith(normalizedQuery)) return 155;
+  if (normalizedTarget.includes(normalizedQuery)) return 130;
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  const targetTokens = normalizedTarget.split(" ").filter(Boolean);
+  if (!queryTokens.length || !targetTokens.length) return 0;
+
+  let score = 0;
+  queryTokens.forEach((queryToken) => {
+    let bestTokenScore = 0;
+    targetTokens.forEach((targetToken) => {
+      if (targetToken === queryToken) {
+        bestTokenScore = Math.max(bestTokenScore, 100);
+        return;
+      }
+      if (targetToken.startsWith(queryToken) || queryToken.startsWith(targetToken)) {
+        bestTokenScore = Math.max(bestTokenScore, 86);
+        return;
+      }
+      const distance = getEditDistance(queryToken, targetToken);
+      const maxLength = Math.max(queryToken.length, targetToken.length);
+      const similarity = maxLength ? 1 - distance / maxLength : 0;
+      if (similarity >= 0.58) {
+        bestTokenScore = Math.max(bestTokenScore, Math.round(similarity * 74));
+      }
+    });
+    score += bestTokenScore;
+  });
+
+  return Math.round(score / queryTokens.length);
+}
+
+function getDealSearchScore(deal, query) {
+  const normalizedQuery = normalizeDealSearch(query);
+  if (!normalizedQuery) return 0;
+
+  const brandScore = getFuzzyTextScore(normalizedQuery, deal.dataset.searchBrand || "");
+  const titleScore = getFuzzyTextScore(normalizedQuery, deal.dataset.searchTitle || "");
+  const codeScore = getFuzzyTextScore(normalizedQuery, deal.dataset.searchCode || "");
+  const searchableScore = getFuzzyTextScore(normalizedQuery, deal.dataset.searchable || "");
+
+  return Math.max(brandScore + 70, titleScore, codeScore + 40, searchableScore - 10);
 }
 
 function isUsableCouponCode(code) {
@@ -723,7 +809,7 @@ function sortOffersNewestFirst(items) {
 
 function groupOffersByBrand(items) {
   return sortOffersNewestFirst(items).reduce((groups, item) => {
-    const brand = String(item.brand || "Partner Store").trim() || "Partner Store";
+    const brand = getOfferBrandName(item);
     const key = normalizeStoreKey(brand);
     if (!groups.has(key)) {
       groups.set(key, { brand, items: [] });
@@ -796,9 +882,11 @@ function createUploadedDealCard(item, index) {
 
   const safeLink = getAloCouponAffiliateUrl(item.link);
   const rawLink = escapeHtml(item.link || "");
-  const brand = escapeHtml(getOfferBrandName(item));
-  const initials = escapeHtml(getStoreInitials(getOfferBrandName(item)));
-  const title = escapeHtml(getDisplayOfferTitle(item));
+  const brandName = getOfferBrandName(item);
+  const displayTitle = getDisplayOfferTitle(item);
+  const brand = escapeHtml(brandName);
+  const initials = escapeHtml(getStoreInitials(brandName));
+  const title = escapeHtml(displayTitle);
   const rawCode = String(item.code || "").trim();
   const code = escapeHtml(rawCode);
   const discount = escapeHtml(item.discount);
@@ -832,6 +920,10 @@ function createUploadedDealCard(item, index) {
   article.dataset.offerType = hasCode ? "coupon" : "deal";
   article.dataset.discountScore = String(getDiscountScore(item.discount));
   article.dataset.createdAt = item.createdAt ? String(new Date(item.createdAt).getTime()) : "0";
+  article.dataset.searchBrand = normalizeDealSearch(brandName);
+  article.dataset.searchTitle = normalizeDealSearch(displayTitle);
+  article.dataset.searchCode = normalizeDealSearch(rawCode);
+  article.dataset.searchScore = "0";
 
   article.innerHTML = `
     <div class="deal-media ${mediaClass}">
@@ -942,14 +1034,15 @@ function createLiveCouponGroup(group) {
   section.className = "store-coupon-group";
   const dealCount = group.items.filter((item) => getOfferKind(item) === "deal").length;
   const codeCount = group.items.length - dealCount;
+  const storeUrl = getOfferStoreUrl(group.brand);
 
   section.innerHTML = `
     <div class="store-coupon-group-head">
       <div>
-        <p>${escapeHtml(group.brand)}</p>
-        <h3>${escapeHtml(group.brand)} Coupons and Promo Codes</h3>
+        <p><a class="store-group-link" href="${storeUrl}">${escapeHtml(group.brand)}</a></p>
+        <h3><a class="store-group-link" href="${storeUrl}">${escapeHtml(group.brand)} Coupons and Promo Codes</a></h3>
       </div>
-      <span>${group.items.length} offers</span>
+      <a class="store-group-count" href="${storeUrl}">${group.items.length} offers</a>
     </div>
   `;
 
@@ -1007,14 +1100,25 @@ async function renderLiveCouponStore() {
 }
 
 function filterDeals(query = "") {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeDealSearch(query);
   const deals = Array.from(document.querySelectorAll("#deals .searchable-deal"));
   let visibleCount = 0;
   const sortMode = dealSortSelectEl?.value || "featured";
+  const scoredDeals = deals.map((deal) => {
+    const score = getDealSearchScore(deal, normalizedQuery);
+    deal.dataset.searchScore = String(score);
+    return { deal, score };
+  });
+  const maxSearchScore = scoredDeals.reduce((max, item) => Math.max(max, item.score), 0);
 
   if (dealSearchResultsEl) {
-    deals
-      .sort((a, b) => {
+    scoredDeals
+      .sort((aItem, bItem) => {
+        const a = aItem.deal;
+        const b = bItem.deal;
+        if (normalizedQuery && aItem.score !== bItem.score) {
+          return bItem.score - aItem.score;
+        }
         const aIsCategory = activeDealCategory !== "all" && a.dataset.category === activeDealCategory;
         const bIsCategory = activeDealCategory !== "all" && b.dataset.category === activeDealCategory;
         if (aIsCategory !== bIsCategory) {
@@ -1028,12 +1132,14 @@ function filterDeals(query = "") {
         }
         return Number(a.dataset.originalIndex || 0) - Number(b.dataset.originalIndex || 0);
       })
-      .forEach((deal) => dealSearchResultsEl.appendChild(deal));
+      .forEach((item) => dealSearchResultsEl.appendChild(item.deal));
   }
 
   deals.forEach((deal) => {
-    const haystack = `${deal.dataset.searchable || ""} ${deal.textContent || ""}`.toLowerCase();
-    const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
+    const score = Number(deal.dataset.searchScore || 0);
+    const isStrongSearchMatch = score >= 58;
+    const isClosestSearchMatch = maxSearchScore > 0 && score >= Math.max(35, maxSearchScore - 10);
+    const matchesQuery = !normalizedQuery || isStrongSearchMatch || isClosestSearchMatch;
     const matchesType = activeDealType === "all" || deal.dataset.offerType === activeDealType;
     const matchesCategory = activeDealCategory === "all" || deal.dataset.category === activeDealCategory;
     deal.hidden = !(matchesQuery && matchesType);

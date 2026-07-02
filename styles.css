@@ -736,11 +736,38 @@ h3 {
   font-size: 1.05rem;
 }
 
-.store-coupon-group-head span {
+.store-group-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.store-group-link:hover,
+.store-group-link:focus-visible {
+  color: var(--green-dark);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.store-coupon-group-head span,
+.store-group-count {
   flex: 0 0 auto;
   color: #596579;
   font-size: 0.8rem;
   font-weight: 800;
+}
+
+.store-group-count {
+  padding: 8px 10px;
+  background: #eefaf4;
+  border: 1px solid #cceedd;
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+.store-group-count:hover,
+.store-group-count:focus-visible {
+  color: var(--white);
+  background: var(--green-dark);
 }
 
 .store-coupon-card {

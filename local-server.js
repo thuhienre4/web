@@ -302,6 +302,15 @@ function getOfferDealPath(offer) {
   return `/deal/${getOfferDealSlug(offer)}`;
 }
 
+function getOfferStoreSlug(offerOrBrand) {
+  const brand = typeof offerOrBrand === "string" ? offerOrBrand : getOfferBrandName(offerOrBrand);
+  return slugify(brand) || "store";
+}
+
+function getOfferStorePath(offerOrBrand) {
+  return `/store/${getOfferStoreSlug(offerOrBrand)}`;
+}
+
 function getAbsoluteUrl(pathname = "/") {
   return `${siteUrl}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
@@ -324,8 +333,10 @@ function sitemapUrl(pathname, lastmod, priority = "0.7") {
 
 function sitemapXml() {
   const offers = readOffers();
+  const storeGroups = groupOffersByBrand(offers);
   const urls = [
     sitemapUrl("/", Date.now(), "1.0"),
+    ...Array.from(storeGroups.values()).map((group) => sitemapUrl(getOfferStorePath(group.brand), group.items[0]?.createdAt || Date.now(), "0.85")),
     ...offers.map((offer) => sitemapUrl(getOfferDealPath(offer), offer.createdAt, "0.8")),
   ];
 
@@ -450,6 +461,80 @@ function dealStructuredData(offer) {
           "@type": "Organization",
           "name": getOfferBrandName(offer),
         },
+      },
+    ],
+  };
+}
+
+function groupOffersByBrand(items) {
+  return normalizeOffers(items).reduce((groups, offer) => {
+    const brand = getOfferBrandName(offer);
+    const key = getOfferStoreSlug(brand);
+    if (!groups.has(key)) {
+      groups.set(key, { brand, items: [] });
+    }
+    groups.get(key).items.push(offer);
+    return groups;
+  }, new Map());
+}
+
+function findStoreGroupBySlug(slug) {
+  const normalizedSlug = slugify(slug);
+  return groupOffersByBrand(readOffers()).get(normalizedSlug);
+}
+
+function storeStructuredData(group) {
+  const storePath = getOfferStorePath(group.brand);
+  const storeUrl = getAbsoluteUrl(storePath);
+  const title = `${group.brand} Coupons and Promo Codes`;
+  const description = `Browse all verified ${group.brand} coupon codes, deals, discounts, and affiliate offers on AloCoupon.`;
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": `${siteUrl}/#organization`,
+        "name": "AloCoupon",
+        "url": getAbsoluteUrl("/"),
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${storeUrl}#breadcrumb`,
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": getAbsoluteUrl("/"),
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Coupon Store",
+            "item": storeUrl,
+          },
+        ],
+      },
+      {
+        "@type": "CollectionPage",
+        "@id": `${storeUrl}#store`,
+        "name": title,
+        "description": description,
+        "url": storeUrl,
+        "isPartOf": {
+          "@id": `${siteUrl}/#website`,
+        },
+      },
+      {
+        "@type": "ItemList",
+        "@id": `${storeUrl}#offers`,
+        "itemListElement": group.items.map((offer, index) => ({
+          "@type": "ListItem",
+          "position": index + 1,
+          "url": getAbsoluteUrl(getOfferDealPath(offer)),
+          "name": getDisplayOfferTitle(offer),
+        })),
       },
     ],
   };
@@ -918,12 +1003,118 @@ function dealPage(offer) {
 </html>`;
 }
 
+function storePage(group) {
+  const brand = escapeHtml(group.brand);
+  const storePath = getOfferStorePath(group.brand);
+  const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
+  const description = escapeHtml(`All verified ${group.brand} coupon codes, promo codes, product deals, and affiliate offers on AloCoupon.`);
+  const structuredData = jsonLdScript(storeStructuredData(group));
+  const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
+  const dealCount = group.items.length - codeCount;
+  const bestOffer = escapeHtml(group.items[0]?.discount || "Best Deal");
+  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(group.items[0]?.link || "#"));
+  const offerRows = group.items.map((offer) => {
+    const title = escapeHtml(getDisplayOfferTitle(offer));
+    const summary = escapeHtml(getOfferSummary(offer));
+    const discount = escapeHtml(offer.discount || "Deal");
+    const code = escapeHtml(isUsableCouponCode(offer.code) ? offer.code : "No code needed");
+    const typeLabel = isUsableCouponCode(offer.code) ? "Coupon code" : "Affiliate deal";
+    const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const dealLink = escapeHtml(getOfferDealPath(offer));
+    return `
+      <article class="brand-offer-card">
+        <div class="brand-offer-discount">${discount}</div>
+        <div>
+          <p class="brand-offer-type">${typeLabel}</p>
+          <h2><a href="${dealLink}">${title}</a></h2>
+          <p>${summary}</p>
+          <div class="brand-offer-code">${code}</div>
+        </div>
+        <a class="brand-offer-action" href="${safeLink}" rel="sponsored noopener">Open affiliate link</a>
+      </article>
+    `;
+  }).join("");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index, follow" />
+  <title>${brand} Coupons and Promo Codes | AloCoupon</title>
+  <meta name="description" content="${description}" />
+  <link rel="canonical" href="${storeUrl}" />
+  <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="${escapeHtml(getAbsoluteUrl("/rss.xml"))}" />
+  ${structuredData}
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body { background: #f4fbf8; color: #17202a; font-family: Arial, sans-serif; margin: 0; }
+    .brand-page { margin: 0 auto; max-width: 1080px; padding: 42px 20px 64px; }
+    .brand-hero { background: #fff; border: 1px solid #dfe7ef; border-radius: 12px; box-shadow: 0 20px 50px rgba(16, 24, 40, .1); padding: 28px; }
+    .brand-eyebrow { color: #08764f; font-size: 13px; font-weight: 900; letter-spacing: .02em; margin: 0 0 8px; text-transform: uppercase; }
+    .brand-page h1 { color: #17202a; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.05; margin: 0 0 12px; }
+    .brand-copy { color: #5f6d7e; font-size: 1rem; margin: 0 0 18px; max-width: 720px; }
+    .brand-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
+    .brand-stats span { background: #e8f8f0; border-radius: 999px; color: #08764f; font-weight: 900; padding: 8px 12px; }
+    .brand-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .brand-actions a { background: #13a76b; border-radius: 999px; color: #fff; font-weight: 900; padding: 12px 16px; text-decoration: none; }
+    .brand-actions a.secondary { background: #e8f8f0; color: #08764f; }
+    .brand-offer-list { display: grid; gap: 14px; margin-top: 22px; }
+    .brand-offer-card { align-items: center; background: #fff; border: 1px solid #dfe7ef; border-radius: 10px; box-shadow: 0 12px 28px rgba(16, 24, 40, .08); display: grid; gap: 18px; grid-template-columns: 120px 1fr auto; padding: 18px; }
+    .brand-offer-discount { color: #029b22; font-size: 1.5rem; font-weight: 900; text-align: center; }
+    .brand-offer-type { color: #667085; font-size: .78rem; font-weight: 900; margin: 0 0 6px; text-transform: uppercase; }
+    .brand-offer-card h2 { font-size: 1.12rem; margin: 0 0 6px; }
+    .brand-offer-card h2 a { color: inherit; text-decoration: none; }
+    .brand-offer-card h2 a:hover { color: #08764f; text-decoration: underline; text-underline-offset: 3px; }
+    .brand-offer-card p { color: #667085; margin: 0 0 10px; }
+    .brand-offer-code { background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 8px; display: inline-block; font-weight: 900; padding: 8px 10px; }
+    .brand-offer-action { background: #029b22; border-radius: 7px; color: #fff; font-weight: 900; padding: 12px 14px; text-align: center; text-decoration: none; }
+    @media (max-width: 760px) { .brand-offer-card { grid-template-columns: 1fr; } .brand-offer-discount { text-align: left; } .brand-offer-action { width: fit-content; } }
+  </style>
+</head>
+<body>
+  <main class="brand-page">
+    <section class="brand-hero">
+      <p class="brand-eyebrow">AloCoupon Store Page</p>
+      <h1>${brand} Coupons and Promo Codes</h1>
+      <p class="brand-copy">${description}</p>
+      <div class="brand-stats">
+        <span>${group.items.length} offers</span>
+        <span>${codeCount} coupon codes</span>
+        <span>${dealCount} deals</span>
+        <span>Best offer: ${bestOffer}</span>
+      </div>
+      <div class="brand-actions">
+        <a href="${affiliateLink}" rel="sponsored noopener">Visit ${brand}</a>
+        <a class="secondary" href="/#store-detail">Back to Coupon Store</a>
+      </div>
+    </section>
+    <section class="brand-offer-list" aria-label="${brand} offers">
+      ${offerRows}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
 
     if (req.method === "GET" && (url.pathname === "/go" || url.pathname.startsWith("/go/"))) {
       handleAffiliateRedirect(url, res);
+      return;
+    }
+
+    const storeMatch = url.pathname.match(/^\/store\/([^/]+)$/);
+    if (req.method === "GET" && storeMatch) {
+      const group = findStoreGroupBySlug(decodeURIComponent(storeMatch[1]));
+      if (!group) {
+        send(res, 404, "Store not found");
+        return;
+      }
+
+      send(res, 200, storePage(group), "text/html; charset=utf-8");
       return;
     }
 

@@ -801,7 +801,7 @@ function adminPage(adminEmail = "") {
           <div class="admin-offer-actions">
             <button class="button button-outline edit-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Edit</button>
             <button class="button button-outline delete-offer-btn" type="button" data-id="\${escapeHtml(offer.id)}">Delete</button>
-            <a class="product-link" href="\${escapeHtml(getAloCouponAffiliateUrl(offer.link))}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
+            <a class="product-link" href="\${escapeHtml(getAloCouponAffiliateUrl(offer.link))}" target="_blank" rel="sponsored noopener">Open</a>
           </div>
         </article>\`
       ).join("") : \`<p class="admin-empty-state">No offers yet. Upload real partner data from the form above.</p>\`;
@@ -1030,7 +1030,7 @@ function storePage(group) {
           <p>${summary}</p>
           <div class="brand-offer-code">${code}</div>
         </div>
-        <a class="brand-offer-action" href="${safeLink}" rel="sponsored noopener">Open affiliate link</a>
+        <a class="brand-offer-action" href="${safeLink}" rel="sponsored noopener">Open</a>
       </article>
     `;
   }).join("");
@@ -1085,7 +1085,7 @@ function storePage(group) {
         <span>Best offer: ${bestOffer}</span>
       </div>
       <div class="brand-actions">
-        <a href="${affiliateLink}" rel="sponsored noopener">Visit ${brand}</a>
+        <a href="${affiliateLink}" rel="sponsored noopener">Open</a>
         <a class="secondary" href="/#store-detail">Back to Coupon Store</a>
       </div>
     </section>

@@ -29,7 +29,7 @@ const translations = {
     "deals.link": "Deals",
     "deals.intro": "Compare current promo codes, free trials, and limited-time savings before visiting each product website.",
     "deals.getDeal": "Get Deal",
-    "deals.visit": "Visit Product Link",
+    "deals.visit": "Open",
     "deal1.badge": "Free Trial",
     "deal1.media": "AI Video",
     "deal1.title": "HeyGen Deal: Get Started with Free Trial Plan",
@@ -205,7 +205,7 @@ const translations = {
     "deals.link": "Ofertas",
     "deals.intro": "Compare códigos promocionais, testes grátis e economias por tempo limitado antes de visitar o site de cada produto.",
     "deals.getDeal": "Obter oferta",
-    "deals.visit": "Visitar link do produto",
+    "deals.visit": "Abrir",
     "deal1.badge": "Teste grátis",
     "deal1.media": "Vídeo com IA",
     "deal1.title": "Oferta HeyGen: comece com o plano de teste grátis",
@@ -868,7 +868,7 @@ function createAffiliateCard(item, index) {
     </div>
     <div class="admin-offer-actions">
       <button class="button button-primary admin-copy-code" type="button" data-code="${code}" data-link="${safeLink}">${hasCode ? "Copy Code" : "Open Deal"}</button>
-      <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Affiliate Link</a>
+      <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>
   `;
 
@@ -940,7 +940,7 @@ function createUploadedDealCard(item, index) {
       <p class="product-desc">${review}</p>
       <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
-      <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Visit Product Link</a>
+      <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>
   `;
 

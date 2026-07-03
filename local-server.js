@@ -117,12 +117,7 @@ function addAloCouponUtmToAffiliate(value) {
 }
 
 function getAloCouponTrackingUrl(value) {
-  const affiliateUrl = addAloCouponUtmToAffiliate(value);
-  if (affiliateUrl === "#") {
-    return "#";
-  }
-
-  return `/go?utm_source=alocoupon&url=${encodeURIComponent(affiliateUrl)}`;
+  return addAloCouponUtmToAffiliate(value);
 }
 
 function escapeHtml(value) {
@@ -744,9 +739,7 @@ function adminPage(adminEmail = "") {
     }
 
     function getAloCouponTrackingUrl(value) {
-      const affiliateUrl = addAloCouponUtmToAffiliate(value);
-      if (affiliateUrl === "#") return "#";
-      return \`\${window.location.origin}/go?utm_source=alocoupon&url=\${encodeURIComponent(affiliateUrl)}\`;
+      return addAloCouponUtmToAffiliate(value);
     }
 
     function getAloCouponAffiliateUrl(value) {

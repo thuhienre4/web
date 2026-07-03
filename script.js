@@ -347,7 +347,7 @@ function bindCouponButton(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening AloCoupon deal page.");
+      showToast("Opening affiliate link.");
       return;
     }
 
@@ -549,12 +549,7 @@ function addAloCouponUtmToAffiliate(value) {
 }
 
 function getAloCouponTrackingUrl(value) {
-  const affiliateUrl = addAloCouponUtmToAffiliate(value);
-  if (affiliateUrl === "#") {
-    return "#";
-  }
-
-  return `${window.location.origin}/go?utm_source=alocoupon&url=${encodeURIComponent(affiliateUrl)}`;
+  return addAloCouponUtmToAffiliate(value);
 }
 
 function getAloCouponAffiliateUrl(value) {
@@ -611,7 +606,7 @@ document.addEventListener("click", (event) => {
   }
 
   event.preventDefault();
-  showToast("Opening AloCoupon deal page.");
+  showToast("Opening affiliate link.");
   openAffiliateLinkAfterDelay(href);
 });
 
@@ -978,7 +973,7 @@ function bindStoreCouponAction(button) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
-      showToast("Opening AloCoupon deal page.");
+      showToast("Opening affiliate link.");
       return;
     }
 
@@ -1305,7 +1300,7 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
     if (safeLink !== "#") {
       openAffiliateLinkAfterDelay(safeLink);
     }
-    showToast("Opening AloCoupon deal page.");
+    showToast("Opening affiliate link.");
     return;
   }
 

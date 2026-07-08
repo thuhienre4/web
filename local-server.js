@@ -3722,6 +3722,19 @@ function handleAffiliateRedirect(url, res) {
   });
 }
 
+function redirectToOfferAffiliate(offer, res) {
+  const target = addAloCouponUtmToAffiliate(getSafeAffiliateUrl(offer.link));
+  if (target === "#") {
+    send(res, 400, "Invalid affiliate link");
+    return;
+  }
+
+  send(res, 302, "", "text/plain; charset=utf-8", {
+    "Location": target,
+    "Referrer-Policy": "origin-when-cross-origin",
+  });
+}
+
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
   const brand = escapeHtml(getOfferBrandName(offer));
@@ -3915,7 +3928,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      send(res, 200, dealPage(offer), "text/html; charset=utf-8");
+      redirectToOfferAffiliate(offer, res);
       return;
     }
 

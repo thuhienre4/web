@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 3000);
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123456";
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 const offersFile = path.join(dataDir, "offers.json");
+const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
 const adminEmailsFile = path.join(dataDir, "admin-emails.json");
 const sessions = new Map();
@@ -40,16 +41,16 @@ function readJsonArrayFile(filePath, fallback = []) {
   }
 }
 
-const starterOffers = readJsonArrayFile(bundledOffersFile);
+const starterOffers = readJsonArrayFile(seedOffersFile, readJsonArrayFile(bundledOffersFile));
 const starterAdminEmails = ["admin@alocoupon.local"];
 
 function ensureDataFile() {
   fs.mkdirSync(dataDir, { recursive: true });
   if (!fs.existsSync(offersFile)) {
     fs.writeFileSync(offersFile, JSON.stringify(starterOffers, null, 2));
-  } else if (path.resolve(offersFile) !== path.resolve(bundledOffersFile)) {
+  } else if (starterOffers.length) {
     const currentOffers = readJsonArrayFile(offersFile);
-    if (!currentOffers.length && starterOffers.length) {
+    if (!currentOffers.length) {
       fs.writeFileSync(offersFile, JSON.stringify(starterOffers, null, 2));
     }
   }

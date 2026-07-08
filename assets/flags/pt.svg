@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-label="Portugal flag">
+  <path fill="#006600" d="M0 0h240v400H0z"/>
+  <path fill="#ff0000" d="M240 0h360v400H240z"/>
+  <g transform="translate(240 200)">
+    <circle r="58" fill="#ffcc00"/>
+    <circle r="44" fill="#fff"/>
+    <path fill="#d40000" d="M-28-38h56v76h-56z"/>
+    <path fill="#fff" d="M-20-29h40v58h-40z"/>
+    <path fill="#003399" d="M-20-29h20v29h-20zM0 0h20v29H0z"/>
+    <path fill="#fff" d="M-9-20h8v8h-8zM6 9h8v8H6z"/>
+  </g>
+</svg>

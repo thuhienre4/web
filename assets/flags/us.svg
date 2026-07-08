@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7410 3900" role="img" aria-label="United States flag">
+  <rect width="7410" height="3900" fill="#b22234"/>
+  <path stroke="#fff" stroke-width="300" d="M0 450h7410M0 1050h7410M0 1650h7410M0 2250h7410M0 2850h7410M0 3450h7410"/>
+  <rect width="2964" height="2100" fill="#3c3b6e"/>
+  <g fill="#fff">
+    <g id="row6">
+      <g id="star">
+        <path d="m247 90 32 99h104l-84 61 32 99-84-61-84 61 32-99-84-61h104z"/>
+      </g>
+      <use href="#star" x="494"/>
+      <use href="#star" x="988"/>
+      <use href="#star" x="1482"/>
+      <use href="#star" x="1976"/>
+      <use href="#star" x="2470"/>
+    </g>
+    <use href="#row6" y="420"/>
+    <use href="#row6" y="840"/>
+    <use href="#row6" y="1260"/>
+    <use href="#row6" y="1680"/>
+    <g id="row5" transform="translate(247 210)">
+      <use href="#star"/>
+      <use href="#star" x="494"/>
+      <use href="#star" x="988"/>
+      <use href="#star" x="1482"/>
+      <use href="#star" x="1976"/>
+    </g>
+    <use href="#row5" y="420"/>
+    <use href="#row5" y="840"/>
+    <use href="#row5" y="1260"/>
+  </g>
+</svg>

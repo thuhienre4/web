@@ -63,7 +63,10 @@ function readOffers() {
   ensureDataFile();
   try {
     const parsed = JSON.parse(fs.readFileSync(offersFile, "utf8"));
-    return normalizeOffers(Array.isArray(parsed) ? parsed : starterOffers);
+    if (Array.isArray(parsed) && parsed.length) {
+      return normalizeOffers(parsed);
+    }
+    return normalizeOffers(starterOffers);
   } catch {
     return normalizeOffers(starterOffers);
   }

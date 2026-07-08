@@ -77,6 +77,21 @@ function writeOffers(offers) {
   fs.writeFileSync(offersFile, JSON.stringify(normalizeOffers(offers), null, 2));
 }
 
+function getDataStatus() {
+  const seedOffers = readJsonArrayFile(seedOffersFile);
+  const bundledOffers = readJsonArrayFile(bundledOffersFile);
+  const runtimeOffers = readJsonArrayFile(offersFile);
+  return {
+    ok: true,
+    build: "data-status-2026-07-09",
+    seedOffers: seedOffers.length,
+    bundledOffers: bundledOffers.length,
+    runtimeOffers: runtimeOffers.length,
+    returnedOffers: readOffers().length,
+    usesCustomDataDir: Boolean(process.env.DATA_DIR),
+  };
+}
+
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -1219,6 +1234,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/healthz") {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/data-status") {
+      sendJson(res, 200, getDataStatus());
       return;
     }
 

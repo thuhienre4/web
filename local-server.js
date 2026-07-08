@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 3000);
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123456";
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 const offersFile = path.join(dataDir, "offers.json");
+const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
 const adminEmailsFile = path.join(dataDir, "admin-emails.json");
@@ -41,7 +42,10 @@ function readJsonArrayFile(filePath, fallback = []) {
   }
 }
 
-const starterOffers = readJsonArrayFile(seedOffersFile, readJsonArrayFile(bundledOffersFile));
+const starterOffers = readJsonArrayFile(
+  rootSeedOffersFile,
+  readJsonArrayFile(seedOffersFile, readJsonArrayFile(bundledOffersFile))
+);
 const starterAdminEmails = ["admin@alocoupon.local"];
 
 function ensureDataFile() {
@@ -78,12 +82,14 @@ function writeOffers(offers) {
 }
 
 function getDataStatus() {
+  const rootSeedOffers = readJsonArrayFile(rootSeedOffersFile);
   const seedOffers = readJsonArrayFile(seedOffersFile);
   const bundledOffers = readJsonArrayFile(bundledOffersFile);
   const runtimeOffers = readJsonArrayFile(offersFile);
   return {
     ok: true,
-    build: "data-status-2026-07-09",
+    build: "root-seed-2026-07-09",
+    rootSeedOffers: rootSeedOffers.length,
     seedOffers: seedOffers.length,
     bundledOffers: bundledOffers.length,
     runtimeOffers: runtimeOffers.length,

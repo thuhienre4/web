@@ -563,20 +563,15 @@ function normalizeOffers(offers) {
 
 function sanitizeBrandLogo(value) {
   const logo = String(value || "").trim();
-  if (!logo) {
-    return "";
-  }
+  if (!logo) return "";
 
   const match = logo.match(/^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i);
-  if (!match) {
-    throw new Error("Logo must be a PNG, JPG, WEBP, or GIF image.");
-  }
+  if (!match) throw new Error("Logo must be a PNG, JPG, WEBP, or GIF image.");
 
   const byteLength = Buffer.from(match[2], "base64").length;
   if (!byteLength || byteLength > 500 * 1024) {
-    throw new Error("Brand logo must be 500 KB or smaller.");
+    throw new Error("Deal logo must be 500 KB or smaller.");
   }
-
   return `data:image/${match[1].toLowerCase()};base64,${match[2]}`;
 }
 
@@ -610,6 +605,9 @@ function sanitizeOffer(input) {
     if (!offer[field]) {
       throw new Error(`Missing required field: ${field}`);
     }
+  }
+  if (!offer.logo) {
+    throw new Error("A logo is required for every deal.");
   }
 
   return offer;
@@ -693,11 +691,11 @@ function adminPage(adminEmail = "") {
         <form class="admin-form" id="secure-offer-form">
           <input name="id" type="hidden" />
           <label>Partner / Brand <input name="brand" type="text" placeholder="Example: HeyGen" required /></label>
-          <label class="logo-upload-field">Brand logo
+          <label class="logo-upload-field">Logo for this deal
             <input name="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-            <span class="form-help">PNG, JPG, WEBP or GIF. Maximum 500 KB.</span>
+            <span class="form-help">Required for every deal. PNG, JPG, WEBP or GIF; maximum 500 KB.</span>
             <span class="logo-preview" id="logo-preview" hidden>
-              <img alt="Brand logo preview" />
+              <img alt="Deal logo preview" />
               <button class="button button-outline" id="remove-logo-btn" type="button">Remove logo</button>
             </span>
           </label>
@@ -811,14 +809,8 @@ function adminPage(adminEmail = "") {
     function readLogoFile(file) {
       return new Promise((resolve, reject) => {
         const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-        if (!allowedTypes.includes(file.type)) {
-          reject(new Error("Choose a PNG, JPG, WEBP, or GIF image."));
-          return;
-        }
-        if (file.size > 500 * 1024) {
-          reject(new Error("Brand logo must be 500 KB or smaller."));
-          return;
-        }
+        if (!allowedTypes.includes(file.type)) return reject(new Error("Choose a PNG, JPG, WEBP, or GIF image."));
+        if (file.size > 500 * 1024) return reject(new Error("Deal logo must be 500 KB or smaller."));
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
         reader.onerror = () => reject(new Error("Could not read the selected logo."));
@@ -879,6 +871,11 @@ function adminPage(adminEmail = "") {
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (!currentLogo) {
+        showToast("Please upload a logo for this deal.");
+        logoInput.focus();
+        return;
+      }
       const payload = getPayload();
       const isEdit = Boolean(payload.id);
       const res = await fetch(isEdit ? \`/api/offers/\${encodeURIComponent(payload.id)}\` : "/api/offers", {

@@ -219,7 +219,7 @@ function readBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > 1_500_000) {
         req.destroy();
         reject(new Error("Request body too large"));
       }
@@ -561,6 +561,25 @@ function normalizeOffers(offers) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+function sanitizeBrandLogo(value) {
+  const logo = String(value || "").trim();
+  if (!logo) {
+    return "";
+  }
+
+  const match = logo.match(/^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i);
+  if (!match) {
+    throw new Error("Logo must be a PNG, JPG, WEBP, or GIF image.");
+  }
+
+  const byteLength = Buffer.from(match[2], "base64").length;
+  if (!byteLength || byteLength > 500 * 1024) {
+    throw new Error("Brand logo must be 500 KB or smaller.");
+  }
+
+  return `data:image/${match[1].toLowerCase()};base64,${match[2]}`;
+}
+
 function sanitizeOffer(input) {
   const offer = {
     id: String(input.id || "").trim() || createOfferId(),
@@ -573,6 +592,7 @@ function sanitizeOffer(input) {
     category: String(input.category || "").trim(),
     expiry: String(input.expiry || "").trim(),
     review: String(input.review || "").trim(),
+    logo: sanitizeBrandLogo(input.logo),
     createdAt: new Date().toISOString(),
   };
 
@@ -673,6 +693,14 @@ function adminPage(adminEmail = "") {
         <form class="admin-form" id="secure-offer-form">
           <input name="id" type="hidden" />
           <label>Partner / Brand <input name="brand" type="text" placeholder="Example: HeyGen" required /></label>
+          <label class="logo-upload-field">Brand logo
+            <input name="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+            <span class="form-help">PNG, JPG, WEBP or GIF. Maximum 500 KB.</span>
+            <span class="logo-preview" id="logo-preview" hidden>
+              <img alt="Brand logo preview" />
+              <button class="button button-outline" id="remove-logo-btn" type="button">Remove logo</button>
+            </span>
+          </label>
           <label>Promotion title <input name="title" type="text" placeholder="Example: Get 20% Off Pro Plan" required /></label>
           <div class="form-row">
             <label>Offer type
@@ -717,7 +745,12 @@ function adminPage(adminEmail = "") {
     const toast = document.querySelector(".toast");
     const saveButton = document.querySelector("#save-offer-btn");
     const cancelEditButton = document.querySelector("#cancel-edit-btn");
+    const logoInput = form.elements.logoFile;
+    const logoPreview = document.querySelector("#logo-preview");
+    const logoPreviewImage = logoPreview.querySelector("img");
+    const removeLogoButton = document.querySelector("#remove-logo-btn");
     let currentOffers = [];
+    let currentLogo = "";
 
     function showToast(message) {
       toast.textContent = message;
@@ -764,13 +797,40 @@ function adminPage(adminEmail = "") {
     function resetFormMode() {
       form.reset();
       form.elements.id.value = "";
+      setLogoPreview("");
       saveButton.textContent = "Publish To Deals";
       cancelEditButton.hidden = true;
+    }
+
+    function setLogoPreview(value) {
+      currentLogo = value || "";
+      logoPreviewImage.src = currentLogo;
+      logoPreview.hidden = !currentLogo;
+    }
+
+    function readLogoFile(file) {
+      return new Promise((resolve, reject) => {
+        const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+        if (!allowedTypes.includes(file.type)) {
+          reject(new Error("Choose a PNG, JPG, WEBP, or GIF image."));
+          return;
+        }
+        if (file.size > 500 * 1024) {
+          reject(new Error("Brand logo must be 500 KB or smaller."));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read the selected logo."));
+        reader.readAsDataURL(file);
+      });
     }
 
     function getPayload() {
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.category = (payload.customCategory || payload.category || "").trim();
+      payload.logo = currentLogo;
+      delete payload.logoFile;
       delete payload.customCategory;
       return payload;
     }
@@ -785,6 +845,8 @@ function adminPage(adminEmail = "") {
       form.elements.expiry.value = offer.expiry || "";
       form.elements.link.value = offer.link || "";
       form.elements.review.value = offer.review || "";
+      logoInput.value = "";
+      setLogoPreview(offer.logo || "");
       const option = Array.from(form.elements.category.options).find((item) => item.value === offer.category);
       form.elements.category.value = option ? offer.category : "Other";
       form.elements.customCategory.value = option ? "" : (offer.category || "");
@@ -801,7 +863,7 @@ function adminPage(adminEmail = "") {
       list.innerHTML = offers.length ? offers.map((offer) => \`
         <article class="admin-offer-card">
           <div class="admin-offer-top">
-            <div><p class="store-name">\${escapeHtml(offer.brand)}</p><h3>\${escapeHtml(offer.title)}</h3></div>
+            <div class="admin-brand-title">\${offer.logo ? \`<img class="admin-brand-logo" src="\${escapeHtml(offer.logo)}" alt="" />\` : ""}<div><p class="store-name">\${escapeHtml(offer.brand)}</p><h3>\${escapeHtml(offer.title)}</h3></div></div>
             <span class="coupon-pill">\${escapeHtml(offer.discount)}</span>
           </div>
           <p>\${escapeHtml(offer.review)}</p>
@@ -832,6 +894,22 @@ function adminPage(adminEmail = "") {
       resetFormMode();
       await loadOffers();
       showToast(isEdit ? "Offer updated." : "Offer published securely.");
+    });
+
+    logoInput.addEventListener("change", async () => {
+      const file = logoInput.files[0];
+      if (!file) return;
+      try {
+        setLogoPreview(await readLogoFile(file));
+      } catch (error) {
+        logoInput.value = "";
+        showToast(error.message);
+      }
+    });
+
+    removeLogoButton.addEventListener("click", () => {
+      logoInput.value = "";
+      setLogoPreview("");
     });
 
     cancelEditButton.addEventListener("click", resetFormMode);

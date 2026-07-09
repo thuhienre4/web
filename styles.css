@@ -1405,6 +1405,67 @@ h3 {
   font-size: 0.68rem;
 }
 
+.brand-logo,
+.admin-brand-logo {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #dce7e2;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.brand-logo.small {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+}
+
+.logo-upload-field {
+  display: grid;
+  gap: 8px;
+}
+
+.form-help {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.logo-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #dfe7ef;
+  border-radius: 10px;
+}
+
+.logo-preview[hidden] {
+  display: none;
+}
+
+.logo-preview img {
+  width: 72px;
+  height: 72px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #dfe7ef;
+  border-radius: 9px;
+  object-fit: contain;
+}
+
+.admin-brand-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .product-desc {
   min-height: 52px;
   margin: 0;

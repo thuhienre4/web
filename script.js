@@ -849,9 +849,12 @@ function createAffiliateCard(item, index) {
 
   article.innerHTML = `
     <div class="admin-offer-top">
-      <div>
+      <div class="admin-brand-title">
+        ${getBrandMark(item, initials)}
+        <div>
         <p class="store-name">${brand}</p>
         <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
+        </div>
       </div>
       <span class="coupon-pill">${discount}</span>
     </div>
@@ -928,7 +931,7 @@ function createUploadedDealCard(item, index) {
     </div>
     <div class="deal-content">
       <div class="brand-highlight">
-        <span class="brand-initials">${initials}</span>
+        ${getBrandMark(item, initials)}
         <p class="store-name">${brand}</p>
       </div>
       <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
@@ -949,6 +952,15 @@ function getStoreInitials(name) {
     .split(/\s+/)
     .filter(Boolean);
   return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST";
+}
+
+function getBrandMark(item, initials, small = false) {
+  const logo = String(item?.logo || "");
+  const isSafeLogo = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/]+=*$/i.test(logo);
+  if (isSafeLogo) {
+    return `<img class="brand-logo${small ? " small" : ""}" src="${logo}" alt="" loading="lazy" />`;
+  }
+  return `<span class="brand-initials${small ? " small" : ""}">${initials}</span>`;
 }
 
 function getDiscountParts(discount) {
@@ -1011,7 +1023,7 @@ function createLiveCouponRow(item) {
     <div class="coupon-discount">${escapeHtml(discount.main)}${discount.sub ? `<span>${escapeHtml(discount.sub)}</span>` : ""}</div>
     <div class="coupon-copy">
       <div class="coupon-brand-line">
-        <span class="brand-initials small">${initials}</span>
+        ${getBrandMark(item, initials, true)}
         <p class="verified-label">${brand} &middot; Verified ${typeLabel}</p>
       </div>
       <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>

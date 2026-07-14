@@ -4,6 +4,7 @@ node_modules/
 .agents/
 .codex/
 data/admin-users.json
+data/admin-categories.json
 data/subscribers.json
 data/project-uploads/
 data/offer-assets/

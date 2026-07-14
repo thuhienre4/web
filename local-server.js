@@ -18,6 +18,7 @@ const projectUploadsDir = path.join(dataDir, "project-uploads");
 const offerAssetsDir = path.join(dataDir, "offer-assets");
 const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
+const adminCategoriesFile = path.join(dataDir, "admin-categories.json");
 const subscribersFile = path.join(dataDir, "subscribers.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
@@ -2810,6 +2811,7 @@ function ensureDataFile() {
     }));
     fs.writeFileSync(adminUsersFile, JSON.stringify(initialUsers, null, 2));
   }
+  if (!fs.existsSync(adminCategoriesFile)) fs.writeFileSync(adminCategoriesFile, "{}");
   if (!fs.existsSync(subscribersFile)) {
     fs.writeFileSync(subscribersFile, "[]");
   }
@@ -2950,6 +2952,75 @@ function applyExtractedBrandLogos(offers) {
 function writeOffers(offers) {
   ensureDataFile();
   fs.writeFileSync(offersFile, JSON.stringify(normalizeOffers(offers), null, 2));
+}
+
+function readAdminCategoryPreferences() {
+  ensureDataFile();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(adminCategoriesFile, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeAdminCategoryPreferences(input) {
+  const next = {};
+  Object.entries(input && typeof input === "object" && !Array.isArray(input) ? input : {}).slice(0, 500).forEach(([key, value]) => {
+    const safeKey = slugify(key).slice(0, 100);
+    if (!safeKey || !value || typeof value !== "object") return;
+    next[safeKey] = {
+      visible: value.visible !== false,
+      home: value.home !== false,
+      order: Math.max(-999999, Math.min(9999999, Number(value.order) || 0)),
+    };
+  });
+  return next;
+}
+
+function writeAdminCategoryPreferences(input) {
+  const preferences = sanitizeAdminCategoryPreferences(input);
+  ensureDataFile();
+  fs.writeFileSync(adminCategoriesFile, JSON.stringify(preferences, null, 2));
+  return preferences;
+}
+
+function getAdminDashboardData() {
+  const offers = readOffers();
+  const subscribers = readSubscribers();
+  const stores = new Set(offers.map((offer) => String(offer.brand || "").trim().toLowerCase()).filter(Boolean));
+  const categories = new Set(offers.map((offer) => String(offer.category || "Other").trim().toLowerCase()).filter(Boolean));
+  const now = Date.now();
+  const isExpired = (offer) => {
+    if (!offer.expiry) return false;
+    const expiry = new Date(offer.expiry).getTime();
+    return !Number.isNaN(expiry) && expiry < now;
+  };
+  return {
+    totals: {
+      offers: offers.length,
+      coupons: offers.filter((offer) => offer.type === "code").length,
+      deals: offers.filter((offer) => offer.type === "deal").length,
+      stores: stores.size,
+      categories: categories.size,
+      visible: offers.filter((offer) => offer.visible !== false).length,
+      expired: offers.filter(isExpired).length,
+      missingLogo: offers.filter((offer) => !offer.logo).length,
+      missingProductImage: offers.filter((offer) => !offer.productImage).length,
+      subscribers: subscribers.length,
+      activeSubscribers: subscribers.filter((item) => item.status === "active").length,
+      adminUsers: readAdminUsers().length,
+    },
+    recent: offers.slice(0, 8).map((offer) => ({
+      id: offer.id,
+      title: offer.title,
+      brand: offer.brand,
+      type: offer.type,
+      visible: offer.visible !== false,
+      createdAt: offer.createdAt,
+      logo: offer.logo || "",
+    })),
+  };
 }
 
 function getDataStatus() {
@@ -3941,10 +4012,11 @@ function adminPage(adminEmail = "") {
 <body class="admin-mode">
   <div class="admin-cms-shell">
     <aside class="cms-sidebar" id="cms-sidebar">
-      <a class="cms-brand" href="#categories"><span class="cms-brand-mark">A</span><strong>AloCMS</strong></a>
+      <a class="cms-brand" href="#dashboard"><span class="cms-brand-mark">A</span><strong>AloCMS</strong></a>
       <p class="cms-menu-label">QUẢN LÝ NỘI DUNG</p>
       <nav class="cms-nav" aria-label="Admin navigation">
-        <button class="cms-nav-item is-active" type="button" data-admin-target="categories"><span>▦</span> Quản lý danh mục</button>
+        <button class="cms-nav-item is-active" type="button" data-admin-target="dashboard"><span>⌂</span> Tổng quan</button>
+        <button class="cms-nav-item" type="button" data-admin-target="categories"><span>▦</span> Quản lý danh mục</button>
         <button class="cms-nav-item cms-parent-item" id="coupon-menu-toggle" type="button" aria-expanded="true"><span>◆</span> Quản lý coupon <b>⌄</b></button>
         <div class="cms-subnav" id="coupon-subnav">
           <button type="button" data-admin-target="store-list"><span>›</span> Store</button>
@@ -3952,10 +4024,6 @@ function adminPage(adminEmail = "") {
           <button type="button" data-admin-target="deal-list"><span>›</span> Deal</button>
           <button type="button" data-admin-target="bulk-offer-import"><span>⇧</span> Upload Deal & Coupon</button>
         </div>
-        <button class="cms-nav-item" type="button" data-admin-target="news"><span>▤</span> Quản lý tin tức</button>
-        <button class="cms-nav-item" type="button" data-admin-target="content"><span>□</span> Trang nội dung</button>
-        <button class="cms-nav-item" type="button" data-admin-target="widgets"><span>✦</span> Widget</button>
-        <button class="cms-nav-item" type="button" data-admin-target="menu"><span>☰</span> Menu</button>
         <button class="cms-nav-item" type="button" data-admin-target="projects"><span>⇧</span> Code & dự án</button>
       </nav>
       <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
@@ -3980,11 +4048,21 @@ function adminPage(adminEmail = "") {
     <div class="cms-workspace">
       <header class="cms-topbar">
         <button class="cms-menu-toggle" id="cms-menu-toggle" type="button" aria-label="Toggle menu">☰</button>
-        <nav><button type="button" data-admin-target="categories">Home</button><button type="button" data-admin-target="news">Tin tức</button></nav>
+        <nav><button type="button" data-admin-target="dashboard">Home</button><button type="button" data-admin-target="bulk-offer-import">Nhập dữ liệu</button></nav>
         <div class="cms-top-actions"><a href="/" target="_blank">◉ Xem website</a><span>🔔</span><button id="top-logout-btn" type="button">Đăng xuất</button></div>
       </header>
       <main class="cms-main">
-        <section class="cms-panel is-active" data-admin-panel="categories">
+        <section class="cms-panel is-active" data-admin-panel="dashboard">
+          <div class="cms-page-heading"><div><h1>Dashboard AloCoupon</h1><p>Theo dõi dữ liệu, chất lượng hình ảnh và trạng thái newsletter tại một nơi.</p></div><div class="cms-breadcrumb"><strong>Tổng quan</strong></div></div>
+          <div class="admin-dashboard-cards" id="admin-dashboard-cards"><div class="admin-dashboard-loading">Đang tải số liệu...</div></div>
+          <div class="admin-dashboard-grid">
+            <section class="admin-dashboard-block"><div class="admin-dashboard-block-head"><div><h2>Chất lượng dữ liệu</h2><p>Tìm và sửa nhanh các offer thiếu ảnh.</p></div><button class="cms-btn cms-btn-info" id="refresh-offer-assets-btn" type="button">Tối ưu ảnh (tối đa 40)</button></div><div id="admin-quality-summary"></div></section>
+            <section class="admin-dashboard-block"><div class="admin-dashboard-block-head"><div><h2>Thao tác nhanh</h2><p>Các công việc quản trị thường dùng.</p></div></div><div class="admin-quick-actions"><button data-admin-target="bulk-offer-import" type="button">⇧ Nhập Deal/Coupon</button><button data-admin-target="deal-create" type="button">＋ Tạo Deal</button><button data-admin-target="offer-list" type="button">◆ Quản lý Coupon</button><button data-admin-target="subscribers" type="button">✉ Subscribers</button></div></section>
+          </div>
+          <section class="admin-dashboard-block"><div class="admin-dashboard-block-head"><div><h2>Dữ liệu mới nhất</h2><p>8 Deal/Coupon được cập nhật gần đây.</p></div><button class="cms-btn cms-btn-dark" id="reload-dashboard-btn" type="button">↻ Làm mới</button></div><div class="category-table-wrap"><table class="category-table"><thead><tr><th>Ảnh</th><th>Tiêu đề</th><th>Store</th><th>Loại</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead><tbody id="admin-dashboard-recent"></tbody></table></div></section>
+        </section>
+
+        <section class="cms-panel" data-admin-panel="categories" hidden>
           <div class="cms-page-heading"><div><h1>Quản lý danh mục</h1><p>Quản lý cấu trúc danh mục bài viết và nội dung hiển thị trên website.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Danh mục</strong></div></div>
           <div class="category-toolbar">
             <div class="category-search"><input id="category-search" type="search" placeholder="Tìm kiếm" /><select id="category-kind"><option value="all">Tất cả</option><option value="Posts">Posts</option><option value="Coupon">Coupon</option></select><button class="cms-btn cms-btn-primary" id="category-search-btn" type="button">Tìm kiếm</button></div>
@@ -4010,7 +4088,7 @@ function adminPage(adminEmail = "") {
 
         <section class="cms-panel coupon-manager-panel" data-admin-panel="store-list" hidden>
           <div class="cms-page-heading"><div><h1>Quản lý store</h1><p>Danh sách cửa hàng được tổng hợp từ dữ liệu coupon đã upload.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Store</strong></div></div>
-          <div class="category-toolbar"><div class="category-search"><input id="store-list-search" type="search" placeholder="Tìm kiếm" /><select id="store-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="store" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" type="button">▣ Cập nhật</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-dark" data-admin-target="categories" type="button">↶ Cancel</button></div></div>
+          <div class="category-toolbar"><div class="category-search"><input id="store-list-search" type="search" placeholder="Tìm kiếm" /><select id="store-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="store" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" id="refresh-store-list-btn" type="button">↻ Làm mới</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-dark" data-admin-target="dashboard" type="button">↶ Dashboard</button></div></div>
           <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="store" /></th><th>Name</th><th>Logo</th><th>Hiển thị</th><th>Số offer</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead><tbody id="store-list-body"></tbody></table></div>
         </section>
 
@@ -4057,7 +4135,7 @@ function adminPage(adminEmail = "") {
             <div class="cms-field-row"><label for="deal-create-order">Sắp xếp</label><input id="deal-create-order" name="order" type="number" value="9999999" /></div>
             <div class="cms-field-row"><label for="deal-create-brand">Store / Thương hiệu</label><input id="deal-create-brand" name="brand" type="text" placeholder="Tên store hoặc thương hiệu" required /></div>
             <div class="cms-field-row"><label for="deal-create-category">Danh mục</label><select id="deal-create-category" name="category" required><option value="Other">Other</option></select></div>
-            <div class="cms-field-row"><label for="deal-create-image">Image</label><div class="cms-file-picker"><label class="cms-file-button" for="deal-create-image">▧ Chọn file</label><input id="deal-create-image" name="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required /><span id="deal-create-file-name">Chưa chọn tệp</span></div></div>
+            <div class="cms-field-row"><label for="deal-create-image">Image <small>Không bắt buộc — hệ thống tự lấy theo affiliate link</small></label><div class="cms-file-picker"><label class="cms-file-button" for="deal-create-image">▧ Chọn file</label><input id="deal-create-image" name="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><span id="deal-create-file-name">Tự động lấy từ website</span></div></div>
             <div class="cms-field-row cms-preview-row" id="deal-create-preview-row" hidden><span></span><div class="cms-deal-image-preview"><img id="deal-create-preview" alt="Deal image preview" /><button id="deal-create-remove-image" type="button">×</button></div></div>
             <div class="cms-field-row"><label>Hiển thị</label><label class="cms-switch"><input name="visible" type="checkbox" checked /><span>YES</span></label></div>
             <div class="cms-field-row cms-description-row"><label for="deal-create-description">Mô tả</label><div class="cms-rich-editor"><div class="cms-editor-toolbar"><button type="button">Source</button><button type="button">▣</button><button type="button">□</button><button type="button">⌕</button><button type="button">▤</button><span></span><button type="button"><b>B</b></button><button type="button"><i>I</i></button><button type="button"><u>U</u></button><button type="button">S</button><button type="button">x₂</button><button type="button">x²</button><button type="button">☷</button><button type="button">☰</button><button type="button">↶</button><button type="button">↷</button><select><option>Styles</option></select><select><option>Format</option></select><select><option>Font</option></select><select><option>Size</option></select></div><textarea id="deal-create-description" name="review" required></textarea></div></div>
@@ -4317,21 +4395,16 @@ function adminPage(adminEmail = "") {
     const adminUserForm = document.querySelector("#admin-user-form");
     const adminUserTableBody = document.querySelector("#admin-user-table-body");
     const subscriberTableBody = document.querySelector("#subscriber-table-body");
+    const adminDashboardCards = document.querySelector("#admin-dashboard-cards");
+    const adminQualitySummary = document.querySelector("#admin-quality-summary");
+    const adminDashboardRecent = document.querySelector("#admin-dashboard-recent");
     const settingsForms = document.querySelectorAll("[data-settings-form]");
-    const categoryStorageKey = "alocoupon_admin_category_preferences_v2";
     let currentOffers = [];
     let currentLogo = "";
     let currentProjectFiles = [];
     let currentDealLogo = "";
     let currentSettings = {};
-    let categoryPreferences = (() => {
-      try {
-        const saved = JSON.parse(localStorage.getItem(categoryStorageKey));
-        return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-      } catch {
-        return {};
-      }
-    })();
+    let categoryPreferences = {};
     let adminCategories = [];
 
     function showToast(message) {
@@ -4348,6 +4421,7 @@ function adminPage(adminEmail = "") {
       });
       document.querySelectorAll(".cms-nav [data-admin-target]").forEach((button) => button.classList.toggle("is-active", button.dataset.adminTarget === target));
       cmsSidebar.classList.remove("is-open");
+      if (target === "dashboard") loadAdminDashboard();
       if (window.location.hash !== "#" + target) history.replaceState(null, "", "#" + target);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -4371,13 +4445,21 @@ function adminPage(adminEmail = "") {
       document.querySelector("#settings-subnav").hidden = expanded;
     });
 
-    function saveCategoryState() {
+    async function saveCategoryState() {
       categoryPreferences = Object.fromEntries(adminCategories.map((item) => [item.key, {
         visible: item.visible,
         home: item.home,
         order: item.order,
       }]));
-      localStorage.setItem(categoryStorageKey, JSON.stringify(categoryPreferences));
+      const res = await fetch("/api/admin/categories", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(categoryPreferences) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || "Không thể lưu danh mục.");
+      categoryPreferences = result;
+    }
+
+    async function loadAdminCategoryPreferences() {
+      const res = await fetch("/api/admin/categories");
+      categoryPreferences = res.ok ? await res.json() : {};
     }
 
     function getCategoryKey(value) {
@@ -4419,6 +4501,25 @@ function adminPage(adminEmail = "") {
       return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("vi-VN").replaceAll("/", "-");
     }
 
+    async function loadAdminDashboard() {
+      const res = await fetch("/api/admin/dashboard");
+      if (!res.ok) return;
+      const data = await res.json();
+      const totals = data.totals || {};
+      const cards = [
+        ["Tổng dữ liệu", totals.offers || 0, "Deal & Coupon", "offer-list"],
+        ["Coupon code", totals.coupons || 0, "Mã giảm giá", "offer-list"],
+        ["Deal", totals.deals || 0, "Ưu đãi không mã", "deal-list"],
+        ["Store", totals.stores || 0, "Thương hiệu", "store-list"],
+        ["Subscribers", totals.activeSubscribers || 0, "Đã xác nhận", "subscribers"],
+        ["Đang hiển thị", totals.visible || 0, "Offer công khai", "offer-list"],
+      ];
+      adminDashboardCards.innerHTML = cards.map((card) => '<button class="admin-stat-card" type="button" data-admin-target="' + card[3] + '"><span>' + escapeHtml(card[0]) + '</span><strong>' + Number(card[1]) + '</strong><small>' + escapeHtml(card[2]) + '</small></button>').join("");
+      adminDashboardCards.querySelectorAll("[data-admin-target]").forEach((button) => button.addEventListener("click", () => openAdminPanel(button.dataset.adminTarget)));
+      adminQualitySummary.innerHTML = '<div class="admin-quality-item"><span>Thiếu logo</span><strong>' + Number(totals.missingLogo || 0) + '</strong></div><div class="admin-quality-item"><span>Thiếu ảnh sản phẩm</span><strong>' + Number(totals.missingProductImage || 0) + '</strong></div><div class="admin-quality-item"><span>Đã hết hạn</span><strong>' + Number(totals.expired || 0) + '</strong></div><div class="admin-quality-item"><span>Danh mục</span><strong>' + Number(totals.categories || 0) + '</strong></div>';
+      adminDashboardRecent.innerHTML = (data.recent || []).map((offer) => '<tr><td>' + (offer.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(offer.logo) + '" alt="" />' : '—') + '</td><td><strong>' + escapeHtml(offer.title) + '</strong></td><td>' + escapeHtml(offer.brand) + '</td><td>' + (offer.type === "code" ? "Coupon" : "Deal") + '</td><td><span class="' + (offer.visible ? "cms-status-active" : "cms-status-disabled") + '">' + (offer.visible ? "Hiển thị" : "Ẩn") + '</span></td><td>' + formatAdminDate(offer.createdAt) + '</td></tr>').join("") || '<tr><td colspan="6">Chưa có dữ liệu.</td></tr>';
+    }
+
     function populateCouponFilters() {
       const stores = Array.from(new Set(currentOffers.map((offer) => String(offer.brand || "").trim()).filter(Boolean))).sort();
       const categories = Array.from(new Set(currentOffers.map((offer) => String(offer.category || "Other").trim()).filter(Boolean))).sort();
@@ -4443,7 +4544,8 @@ function adminPage(adminEmail = "") {
         items = items.filter((offer) => (store === "all" || offer.brand === store) && (type === "all" || offer.type === type));
       } else {
         const category = document.querySelector("#deal-list-category").value;
-        items = items.filter((offer) => category === "all" || offer.category === category);
+        const status = document.querySelector("#deal-list-status").value;
+        items = items.filter((offer) => (category === "all" || offer.category === category) && (status === "all" || offer.visible !== false));
       }
       return items.filter((offer) => !search || [offer.title, offer.brand, offer.code, offer.category].some((value) => String(value || "").toLowerCase().includes(search)));
     }
@@ -4465,12 +4567,12 @@ function adminPage(adminEmail = "") {
 
     function renderOfferManager() {
       const items = getFilteredCouponItems("offer");
-      offerListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="offer" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.code || "No code")}</small></td><td><select><option>Có</option><option>Không</option></select></td><td><select><option>Có</option><option>Không</option></select></td><td>\${escapeHtml(offer.brand)}</td><td><input class="category-order" type="number" value="\${index + 1}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
+      offerListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="offer" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.code || "No code")}</small></td><td><select class="offer-visible"><option value="true" \${offer.visible !== false ? "selected" : ""}>Có</option><option value="false" \${offer.visible === false ? "selected" : ""}>Không</option></select></td><td><span class="cms-status-active">Đã kiểm tra</span></td><td>\${escapeHtml(offer.brand)}</td><td><input class="category-order offer-order" type="number" value="\${Number(offer.order ?? index + 1)}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
     }
 
     function renderDealManager() {
       const items = getFilteredCouponItems("deal");
-      dealListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="deal" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.discount)}</small></td><td>\${offer.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(offer.logo) + '" alt="" />' : '<span class="coupon-image-empty">No image</span>'}</td><td><select><option \${offer.visible !== false ? "selected" : ""}>Có</option><option \${offer.visible === false ? "selected" : ""}>Không</option></select></td><td>\${escapeHtml(offer.category)}</td><td><input class="category-order" type="number" value="\${Number(offer.order ?? index + 1)}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
+      dealListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="deal" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.discount)}</small></td><td>\${offer.productImage || offer.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(offer.productImage || offer.logo) + '" alt="" />' : '<span class="coupon-image-empty">No image</span>'}</td><td><select class="offer-visible"><option value="true" \${offer.visible !== false ? "selected" : ""}>Có</option><option value="false" \${offer.visible === false ? "selected" : ""}>Không</option></select></td><td>\${escapeHtml(offer.category)}</td><td><input class="category-order offer-order" type="number" value="\${Number(offer.order ?? index + 1)}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
     }
 
     function renderCouponManagers() {
@@ -4683,34 +4785,52 @@ function adminPage(adminEmail = "") {
     categoryTableBody.addEventListener("change", (event) => {
       if (event.target.matches(".category-select")) updateSelectedCategoryCount();
     });
-    categoryTableBody.addEventListener("click", (event) => {
+    categoryTableBody.addEventListener("click", async (event) => {
       const row = event.target.closest("tr[data-category-id]");
       if (!row) return;
       const id = row.dataset.categoryId;
       const item = adminCategories.find((category) => String(category.id) === id);
       if (!item) return;
       if (event.target.closest(".edit-category-btn")) {
-        openAdminPanel("offers");
-        showToast("Danh mục này được lấy từ offer đã upload. Hãy sửa category trong offer tương ứng.");
+        const nextName = prompt("Đổi tên danh mục:", item.name);
+        if (!nextName || nextName.trim() === item.name) return;
+        const updates = currentOffers.filter((offer) => offer.category === item.name).map((offer) => ({ id: offer.id, category: nextName.trim() }));
+        const res = await fetch("/api/admin/offers/batch", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates }) });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) return showToast(result.error || "Không thể đổi tên danh mục.");
+        await loadOffers();
+        showToast("Đã đổi tên danh mục cho " + result.updated + " offer.");
       }
       if (event.target.closest(".delete-category-btn") && confirm('Xóa danh mục "' + item.name + '"?')) {
-        showToast("Không thể xóa danh mục đang có offer. Hãy xóa hoặc chuyển category của các offer trước.");
+        const deleteIds = currentOffers.filter((offer) => offer.category === item.name).map((offer) => offer.id);
+        const res = await fetch("/api/admin/offers/batch", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deleteIds }) });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) return showToast(result.error || "Không thể xóa danh mục.");
+        await loadOffers();
+        showToast("Đã xóa danh mục và " + result.deleted + " offer.");
       }
     });
-    document.querySelector("#save-categories-btn").addEventListener("click", () => {
+    document.querySelector("#save-categories-btn").addEventListener("click", async () => {
       syncCategoryRows();
-      saveCategoryState();
-      showToast("Đã cập nhật danh mục.");
+      try { await saveCategoryState(); showToast("Đã lưu danh mục trên máy chủ."); }
+      catch (error) { showToast(error.message); }
     });
     document.querySelector("#add-category-btn").addEventListener("click", () => {
       openAdminPanel("offers");
       form.elements.customCategory.focus();
       showToast("Nhập danh mục mới trong form upload offer.");
     });
-    document.querySelector("#delete-categories-btn").addEventListener("click", () => {
+    document.querySelector("#delete-categories-btn").addEventListener("click", async () => {
       const selectedIds = Array.from(categoryTableBody.querySelectorAll(".category-select:checked")).map((checkbox) => checkbox.closest("tr").dataset.categoryId);
       if (!selectedIds.length) return showToast("Hãy chọn danh mục cần xóa.");
-      showToast("Danh mục được đồng bộ từ offer. Hãy xóa hoặc đổi category của offer tương ứng.");
+      const selectedNames = new Set(adminCategories.filter((item) => selectedIds.includes(String(item.id))).map((item) => item.name));
+      const deleteIds = currentOffers.filter((offer) => selectedNames.has(offer.category)).map((offer) => offer.id);
+      if (!confirm("Xóa " + selectedNames.size + " danh mục và " + deleteIds.length + " offer bên trong?")) return;
+      const res = await fetch("/api/admin/offers/batch", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deleteIds }) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể xóa danh mục.");
+      await loadOffers();
+      showToast("Đã xóa " + result.deleted + " offer.");
     });
     document.querySelector("#reset-categories-btn").addEventListener("click", () => {
       categorySearchInput.value = "";
@@ -4801,14 +4921,49 @@ function adminPage(adminEmail = "") {
       const ids = Array.from(document.querySelectorAll('.coupon-row-select[data-list="' + kind + '"]:checked')).map((checkbox) => checkbox.closest("tr").dataset.offerId);
       if (!ids.length) return showToast("Hãy chọn dữ liệu cần xóa.");
       if (!confirm("Xóa " + ids.length + " mục đã chọn?")) return;
-      const responses = await Promise.all(ids.map((id) => fetch("/api/offers/" + encodeURIComponent(id), { method: "DELETE" })));
-      if (responses.some((response) => !response.ok)) showToast("Một số mục chưa thể xóa.");
+      const res = await fetch("/api/admin/offers/batch", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deleteIds: ids }) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể xóa dữ liệu.");
       await loadOffers();
-      showToast("Đã cập nhật danh sách.");
+      showToast("Đã xóa " + result.deleted + " mục.");
     }));
 
-    document.querySelector("#update-offer-list-btn").addEventListener("click", () => showToast("Danh sách offer đã được cập nhật."));
-    document.querySelector("#update-deal-list-btn").addEventListener("click", () => showToast("Danh sách deal đã được cập nhật."));
+    async function saveManagerRows(body) {
+      const updates = Array.from(body.querySelectorAll("tr[data-offer-id]")).map((row) => ({
+        id: row.dataset.offerId,
+        visible: row.querySelector(".offer-visible")?.value !== "false",
+        order: Number(row.querySelector(".offer-order")?.value || 0),
+      }));
+      if (!updates.length) return showToast("Không có dữ liệu để cập nhật.");
+      const res = await fetch("/api/admin/offers/batch", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates }) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Cập nhật thất bại.");
+      await loadOffers();
+      showToast("Đã lưu " + result.updated + " mục.");
+    }
+
+    document.querySelector("#update-offer-list-btn").addEventListener("click", () => saveManagerRows(offerListBody));
+    document.querySelector("#update-deal-list-btn").addEventListener("click", () => saveManagerRows(dealListBody));
+    document.querySelector("#refresh-store-list-btn").addEventListener("click", async () => { await loadOffers(); showToast("Đã làm mới danh sách store."); });
+    document.querySelector("#reload-dashboard-btn").addEventListener("click", async () => { await loadAdminDashboard(); showToast("Đã làm mới dashboard."); });
+    document.querySelector("#refresh-offer-assets-btn").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Đang quét website...";
+      try {
+        const res = await fetch("/api/admin/offers/refresh-assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.error || "Không thể tối ưu ảnh.");
+        await loadOffers();
+        await loadAdminDashboard();
+        showToast("Đã tối ưu ảnh cho " + result.refreshed + "/" + result.attempted + " offer.");
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = "Tối ưu ảnh (tối đa 40)";
+      }
+    });
 
     function escapeHtml(value) {
       return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -4879,7 +5034,7 @@ function adminPage(adminEmail = "") {
       dealCreateImageInput.value = "";
       dealCreatePreview.src = "";
       dealCreatePreviewRow.hidden = true;
-      dealCreateFileName.textContent = "Chưa chọn tệp";
+      dealCreateFileName.textContent = "Tự động lấy từ website";
     }
 
     dealCreateForm.elements.title.addEventListener("input", () => {
@@ -4905,12 +5060,11 @@ function adminPage(adminEmail = "") {
       dealCreateImageInput.value = "";
       dealCreatePreview.src = "";
       dealCreatePreviewRow.hidden = true;
-      dealCreateFileName.textContent = "Chưa chọn tệp";
+      dealCreateFileName.textContent = "Tự động lấy từ website";
     });
 
     dealCreateForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!currentDealLogo) return showToast("Hãy chọn ảnh cho deal.");
       const data = new FormData(dealCreateForm);
       const payload = {
         title: data.get("title"),
@@ -4927,6 +5081,7 @@ function adminPage(adminEmail = "") {
         type: "deal",
         code: "",
         logo: currentDealLogo,
+        autoExtract: true,
       };
       const submitButton = document.querySelector('[form="deal-create-form"]');
       submitButton.disabled = true;
@@ -5056,13 +5211,14 @@ function adminPage(adminEmail = "") {
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!currentLogo) {
-        showToast("Please upload a logo for this deal.");
+      const payload = getPayload();
+      const isEdit = Boolean(payload.id);
+      if (isEdit && !currentLogo) {
+        showToast("Offer đang sửa cần có logo.");
         logoInput.focus();
         return;
       }
-      const payload = getPayload();
-      const isEdit = Boolean(payload.id);
+      payload.autoExtract = !isEdit;
       const res = await fetch(isEdit ? \`/api/offers/\${encodeURIComponent(payload.id)}\` : "/api/offers", {
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -5329,8 +5485,8 @@ function adminPage(adminEmail = "") {
     document.querySelector("#logout-btn").addEventListener("click", logoutAdmin);
     document.querySelector("#top-logout-btn").addEventListener("click", logoutAdmin);
 
-    renderCategories();
-    loadOffers();
+    loadAdminCategoryPreferences().then(loadOffers);
+    loadAdminDashboard();
     loadProjects();
     loadAdminUsers();
     loadSubscribers();
@@ -5963,6 +6119,76 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, getAdminDashboardData());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/categories") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, readAdminCategoryPreferences());
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/categories") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req));
+      sendJson(res, 200, writeAdminCategoryPreferences(payload));
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/offers/batch") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req, 2_000_000));
+      const updates = Array.isArray(payload.updates) ? payload.updates.slice(0, 500) : [];
+      const deleteIds = new Set((Array.isArray(payload.deleteIds) ? payload.deleteIds : []).slice(0, 500).map(String));
+      const updateMap = new Map(updates.map((item) => [String(item.id || ""), item]));
+      if (!updateMap.size && !deleteIds.size) throw new Error("No offer changes were supplied.");
+      const current = readOffers();
+      let updated = 0;
+      let deleted = 0;
+      const next = [];
+      current.forEach((offer) => {
+        if (deleteIds.has(offer.id)) { deleted += 1; return; }
+        const change = updateMap.get(offer.id);
+        if (!change) { next.push(offer); return; }
+        const merged = { ...offer };
+        if ("visible" in change) merged.visible = change.visible !== false && String(change.visible).toLowerCase() !== "false";
+        if ("order" in change) merged.order = Math.max(-999999, Math.min(9999999, Number(change.order) || 0));
+        if ("category" in change && String(change.category || "").trim()) merged.category = String(change.category).trim().slice(0, 120);
+        if ("brand" in change && String(change.brand || "").trim()) merged.brand = String(change.brand).trim().slice(0, 160);
+        next.push(sanitizeUpdatedOffer(merged, offer));
+        updated += 1;
+      });
+      writeOffers(next);
+      sendJson(res, 200, { ok: true, updated, deleted, total: next.length });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/offers/refresh-assets") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req));
+      const requestedIds = new Set((Array.isArray(payload.ids) ? payload.ids : []).slice(0, 40).map(String));
+      const offers = readOffers();
+      const targets = offers.filter((offer) => requestedIds.size ? requestedIds.has(offer.id) : (!offer.logo || !offer.productImage || /^https?:/i.test(offer.logo))).slice(0, 40);
+      let refreshed = 0;
+      const failures = [];
+      for (const offer of targets) {
+        try {
+          const assets = await extractStoreAssets(offer.link);
+          offer.logo = assets.logo || offer.logo;
+          offer.productImage = assets.productImage || offer.productImage;
+          refreshed += 1;
+        } catch (error) {
+          failures.push({ id: offer.id, title: offer.title, error: error.message });
+        }
+      }
+      if (refreshed) writeOffers(offers);
+      sendJson(res, 200, { ok: true, refreshed, attempted: targets.length, failures });
+      return;
+    }
+
     if (req.method === "PUT" && url.pathname === "/api/admin/settings") {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
       const settings = sanitizeSiteSettings(JSON.parse(await readBody(req, 2_500_000)));
@@ -6146,6 +6372,13 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = JSON.parse(await readBody(req));
+      if (!payload.logo && payload.link && payload.autoExtract !== false) {
+        try {
+          const assets = await extractStoreAssets(payload.link);
+          payload.logo = assets.logo;
+          payload.productImage = assets.productImage;
+        } catch {}
+      }
       const offer = sanitizeOffer(payload);
       const offers = readOffers();
       writeOffers([offer, ...offers]);

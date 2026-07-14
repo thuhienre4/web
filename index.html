@@ -534,6 +534,29 @@
         </div>
       </section>
 
+      <section class="newsletter-section reveal" id="newsletter" aria-labelledby="newsletter-title">
+        <div class="container newsletter-shell">
+          <div class="newsletter-copy">
+            <span class="newsletter-kicker">Free deal alerts</span>
+            <h2 id="newsletter-title">Get deals by email</h2>
+            <p id="newsletter-description">Subscribe to receive verified coupons and new deals. Confirm once, unsubscribe anytime.</p>
+            <div class="newsletter-benefits" aria-label="Newsletter benefits">
+              <span>✓ Verified offers</span><span>✓ New coupon codes</span><span>✓ No spam</span>
+            </div>
+          </div>
+          <form class="newsletter-form" id="newsletter-form" novalidate>
+            <label for="newsletter-email">Email address</label>
+            <div class="newsletter-field-row">
+              <input id="newsletter-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" maxlength="254" required />
+              <button type="submit">Send me deals <span aria-hidden="true">→</span></button>
+            </div>
+            <label class="newsletter-consent"><input name="consent" type="checkbox" required /> <span>I agree to receive AloCoupon deal emails and can unsubscribe anytime.</span></label>
+            <label class="newsletter-honeypot" aria-hidden="true">Website <input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
+            <p class="newsletter-status" id="newsletter-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+
     </main>
 
     <footer class="site-footer">
@@ -571,6 +594,6 @@
     </footer>
 
     <div class="toast" role="status" aria-live="polite"></div>
-    <script src="script.js?v=20260713-14" defer></script>
+    <script src="script.js?v=20260714-15" defer></script>
   </body>
 </html>

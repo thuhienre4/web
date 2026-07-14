@@ -15,6 +15,7 @@ const trustpilotReviewsFile = path.join(dataDir, "trustpilot-reviews.json");
 const projectUploadsDir = path.join(dataDir, "project-uploads");
 const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
+const subscribersFile = path.join(dataDir, "subscribers.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
@@ -22,6 +23,10 @@ const adminEmailsFile = path.join(dataDir, "admin-emails.json");
 const sessions = new Map();
 const isProduction = process.env.NODE_ENV === "production";
 const siteUrl = String(process.env.SITE_URL || "https://alocoupon.com").replace(/\/+$/, "");
+const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
+const newsletterSecret = String(process.env.NEWSLETTER_SECRET || adminPassword);
+const newsletterRateLimits = new Map();
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -2801,6 +2806,9 @@ function ensureDataFile() {
     }));
     fs.writeFileSync(adminUsersFile, JSON.stringify(initialUsers, null, 2));
   }
+  if (!fs.existsSync(subscribersFile)) {
+    fs.writeFileSync(subscribersFile, "[]");
+  }
 }
 
 function readSiteSettings() {
@@ -2841,6 +2849,18 @@ function writeAdminUsers(users) {
   ensureDataFile();
   fs.writeFileSync(adminUsersFile, JSON.stringify(users, null, 2));
   fs.writeFileSync(adminEmailsFile, JSON.stringify(users.filter((user) => user.status !== "disabled").map((user) => normalizeEmail(user.email)), null, 2));
+}
+
+function readSubscribers() {
+  ensureDataFile();
+  return readJsonArrayFile(subscribersFile)
+    .map((subscriber) => ({ ...subscriber, email: normalizeEmail(subscriber.email) }))
+    .filter((subscriber) => subscriber.id && subscriber.email);
+}
+
+function writeSubscribers(subscribers) {
+  ensureDataFile();
+  fs.writeFileSync(subscribersFile, JSON.stringify(subscribers, null, 2));
 }
 
 function readTrustpilotReviews() {
@@ -3148,6 +3168,128 @@ function normalizeOfferDate(value, fallbackIndex = 0) {
 
 function createOfferId() {
   return `offer_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function createNewsletterToken(subscriberOrId, purpose) {
+  const subscriber = typeof subscriberOrId === "object" ? subscriberOrId : readSubscribers().find((item) => item.id === subscriberOrId);
+  const subscriberId = subscriber?.id || String(subscriberOrId || "");
+  const version = purpose === "confirm" ? String(subscriber?.confirmVersion || "") : "";
+  if (!subscriberId || (purpose === "confirm" && !version)) return "";
+  const signature = crypto.createHmac("sha256", newsletterSecret).update(`${purpose}:${subscriberId}:${version}`).digest("base64url");
+  return `${subscriberId}.${signature}`;
+}
+
+function getSubscriberFromToken(token, purpose) {
+  const [subscriberId, providedSignature] = String(token || "").split(".");
+  if (!subscriberId || !providedSignature) return null;
+  const subscriber = readSubscribers().find((item) => item.id === subscriberId);
+  if (!subscriber) return null;
+  const version = purpose === "confirm" ? String(subscriber.confirmVersion || "") : "";
+  if (purpose === "confirm" && !version) return null;
+  const expectedSignature = crypto.createHmac("sha256", newsletterSecret).update(`${purpose}:${subscriberId}:${version}`).digest("base64url");
+  const expected = Buffer.from(expectedSignature);
+  const provided = Buffer.from(providedSignature);
+  if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) return null;
+  return subscriber;
+}
+
+function getNewsletterRequestKey(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function enforceNewsletterRateLimit(req) {
+  const key = getNewsletterRequestKey(req);
+  const now = Date.now();
+  const recent = (newsletterRateLimits.get(key) || []).filter((time) => now - time < 60 * 60 * 1000);
+  if (recent.length >= 5) throw new Error("Too many signup attempts. Please try again later.");
+  recent.push(now);
+  newsletterRateLimits.set(key, recent);
+}
+
+async function sendNewsletterEmail({ to, subject, html, text, headers = {}, idempotencyKey }) {
+  if (!resendApiKey || !resendFromEmail) return { sent: false, reason: "not_configured" };
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey.slice(0, 256) } : {}),
+    },
+    body: JSON.stringify({ from: resendFromEmail, to: [to], subject, html, text, headers }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || result.name || "Email provider rejected the message.");
+  return { sent: true, id: result.id || "" };
+}
+
+function getAbsoluteAssetUrl(value) {
+  const source = String(value || "").trim();
+  if (/^https?:\/\//i.test(source) || source.startsWith("data:")) return source;
+  return source.startsWith("/") ? `${siteUrl}${source}` : "";
+}
+
+function newsletterEmailShell(content, unsubscribeUrl = "") {
+  const footer = unsubscribeUrl
+    ? `<p style="margin:24px 0 0;color:#7a8995;font-size:12px;line-height:1.6">You received this because you subscribed to AloCoupon deal alerts. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#087dbd">Unsubscribe</a>.</p>`
+    : `<p style="margin:24px 0 0;color:#7a8995;font-size:12px;line-height:1.6">AloCoupon only sends requested deal alerts.</p>`;
+  return `<!doctype html><html><body style="margin:0;background:#f4f7f9;font-family:Arial,sans-serif;color:#15364d"><div style="max-width:620px;margin:0 auto;padding:28px 16px"><div style="background:#fff;border:1px solid #e1e8ed;border-radius:18px;padding:28px"><a href="${escapeHtml(siteUrl)}" style="color:#11334b;font-size:24px;font-weight:900;text-decoration:none">Alo<span style="color:#0a9b67">Coupon</span></a>${content}${footer}</div></div></body></html>`;
+}
+
+async function sendNewsletterConfirmation(subscriber) {
+  const confirmUrl = `${siteUrl}/newsletter/confirm?token=${encodeURIComponent(createNewsletterToken(subscriber, "confirm"))}`;
+  const content = `<p style="margin:26px 0 8px;color:#0a9b67;font-size:12px;font-weight:800;text-transform:uppercase">Confirm your subscription</p><h1 style="margin:0 0 12px;font-size:30px;line-height:1.2">Get verified deals in your inbox</h1><p style="color:#607483;line-height:1.7">Click below to confirm that you want to receive new coupon codes and affiliate deals from AloCoupon.</p><p style="margin:24px 0"><a href="${escapeHtml(confirmUrl)}" style="display:inline-block;background:#0a9b67;color:#fff;border-radius:10px;padding:13px 20px;font-weight:800;text-decoration:none">Confirm subscription</a></p>`;
+  const result = await sendNewsletterEmail({
+    to: subscriber.email,
+    subject: "Confirm your AloCoupon deal alerts",
+    html: newsletterEmailShell(content),
+    text: `Confirm your AloCoupon deal alerts: ${confirmUrl}`,
+    idempotencyKey: `newsletter-confirm-${subscriber.id}-${Date.now().toString(36)}`,
+  });
+  return { ...result, confirmUrl };
+}
+
+function buildDealAlertContent(offers) {
+  const cards = offers.slice(0, 8).map((offer) => {
+    const title = escapeHtml(getDisplayOfferTitle(offer));
+    const summary = escapeHtml(getOfferSummary(offer));
+    const discount = escapeHtml(offer.discount || "New deal");
+    const brand = escapeHtml(getOfferBrandName(offer));
+    const code = isUsableCouponCode(offer.code) ? escapeHtml(offer.code) : "No code needed";
+    const link = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const logo = getAbsoluteAssetUrl(offer.logo);
+    return `<div style="margin-top:16px;border:1px solid #e2e8ee;border-radius:14px;padding:18px"><div style="display:flex;gap:12px;align-items:center">${logo ? `<img src="${escapeHtml(logo)}" alt="" width="54" height="54" style="object-fit:contain;border:1px solid #e2e8ee;border-radius:10px;padding:4px" />` : ""}<div><p style="margin:0 0 4px;color:#0a9b67;font-size:12px;font-weight:800">${brand} · ${discount}</p><h2 style="margin:0;font-size:18px;line-height:1.35">${title}</h2></div></div><p style="color:#667786;font-size:14px;line-height:1.6">${summary}</p><p style="margin:14px 0"><span style="background:#f6f9fa;border:1px dashed #aab9c3;border-radius:8px;padding:8px 10px;font-weight:800">${code}</span></p><a href="${link}" style="display:inline-block;background:#0a9b67;color:#fff;border-radius:9px;padding:11px 17px;font-weight:800;text-decoration:none">View deal →</a></div>`;
+  }).join("");
+  return `<p style="margin:26px 0 8px;color:#0a9b67;font-size:12px;font-weight:800;text-transform:uppercase">New verified offers</p><h1 style="margin:0 0 10px;font-size:30px">Fresh deals just landed</h1><p style="color:#607483;line-height:1.7">Here are the newest AloCoupon offers selected for you.</p>${cards}`;
+}
+
+async function notifySubscribersOfOffers(offers) {
+  const visibleOffers = offers.filter((offer) => offer && offer.visible !== false);
+  if (!visibleOffers.length || !resendApiKey || !resendFromEmail) return { sent: 0, skipped: true };
+  const subscribers = readSubscribers().filter((subscriber) => subscriber.status === "active");
+  let sent = 0;
+  for (const subscriber of subscribers) {
+    const unsubscribeUrl = `${siteUrl}/newsletter/unsubscribe?token=${encodeURIComponent(createNewsletterToken(subscriber.id, "unsubscribe"))}`;
+    try {
+      await sendNewsletterEmail({
+        to: subscriber.email,
+        subject: visibleOffers.length === 1 ? `${getOfferBrandName(visibleOffers[0])}: ${visibleOffers[0].discount || "New deal"}` : `${visibleOffers.length} new verified deals from AloCoupon`,
+        html: newsletterEmailShell(buildDealAlertContent(visibleOffers), unsubscribeUrl),
+        text: visibleOffers.map((offer) => `${getDisplayOfferTitle(offer)}\n${getAloCouponTrackingUrl(offer.link)}`).join("\n\n") + `\n\nUnsubscribe: ${unsubscribeUrl}`,
+        headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+        idempotencyKey: `deal-alert-${subscriber.id}-${visibleOffers.map((offer) => offer.id).join("-")}`,
+      });
+      sent += 1;
+      subscriber.lastNotifiedAt = new Date().toISOString();
+    } catch (error) {
+      console.error(`Newsletter delivery failed for subscriber ${subscriber.id}: ${error.message}`);
+    }
+  }
+  if (subscribers.length) writeSubscribers(readSubscribers().map((current) => subscribers.find((item) => item.id === current.id) || current));
+  return { sent, skipped: false };
+}
+
+function newsletterStatusPage(title, message, success = true) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} | AloCoupon</title></head><body style="margin:0;background:#f4f7f9;font-family:Arial,sans-serif;color:#15364d"><main style="max-width:560px;margin:10vh auto;padding:20px"><section style="background:#fff;border:1px solid #e1e8ed;border-radius:18px;padding:34px;text-align:center"><div style="font-size:40px">${success ? "✓" : "!"}</div><h1>${escapeHtml(title)}</h1><p style="color:#667786;line-height:1.7">${escapeHtml(message)}</p><a href="/" style="display:inline-block;margin-top:12px;background:#0a9b67;color:#fff;border-radius:10px;padding:12px 18px;font-weight:800;text-decoration:none">Back to AloCoupon</a></section></main></body></html>`;
 }
 
 const allowedProjectExtensions = new Set([
@@ -3632,6 +3774,7 @@ function adminPage(adminEmail = "") {
       <nav class="cms-nav cms-system-nav" aria-label="System navigation">
         <button class="cms-nav-item" type="button" data-admin-target="projects"><span>▣</span> Quản lý file</button>
         <button class="cms-nav-item" type="button" data-admin-target="users"><span>♙</span> Quản lý user</button>
+        <button class="cms-nav-item" type="button" data-admin-target="subscribers"><span>✉</span> Email subscribers</button>
         <button class="cms-nav-item cms-parent-item" id="settings-menu-toggle" type="button" aria-expanded="true"><span>⚙</span> Quản lý cấu hình <b>⌄</b></button>
         <div class="cms-subnav" id="settings-subnav">
           <button type="button" data-admin-target="settings-general"><span>›</span> Cấu hình chung</button>
@@ -3762,6 +3905,12 @@ function adminPage(adminEmail = "") {
         </form>
       </div>
       <div class="category-table-wrap"><table class="category-table"><thead><tr><th>Họ và tên</th><th>Tên đăng nhập</th><th>Email</th><th>Số điện thoại</th><th>Ngày đăng ký</th><th>Trạng thái</th><th></th></tr></thead><tbody id="admin-user-table-body"></tbody></table></div>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="subscribers" hidden>
+      <div class="cms-page-heading"><div><h1>Email subscribers</h1><p>Quản lý người đăng ký nhận coupon và deal mới từ AloCoupon.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Subscribers</strong></div></div>
+      <div class="admin-stats"><span><strong id="subscriber-total-count">0</strong> Total</span><span><strong id="subscriber-active-count">0</strong> Active</span><span><strong id="subscriber-pending-count">0</strong> Pending</span><span><strong>${resendApiKey && resendFromEmail ? "Ready" : "Setup needed"}</strong> Email delivery</span></div>
+      <div class="category-table-wrap"><table class="category-table"><thead><tr><th>Email</th><th>Status</th><th>Subscribed</th><th>Confirmed</th><th>Last notified</th><th></th></tr></thead><tbody id="subscriber-table-body"></tbody></table></div>
     </section>
 
     <section class="cms-panel" data-admin-panel="settings-general" hidden>
@@ -3967,6 +4116,7 @@ function adminPage(adminEmail = "") {
     const dealCreateFileName = document.querySelector("#deal-create-file-name");
     const adminUserForm = document.querySelector("#admin-user-form");
     const adminUserTableBody = document.querySelector("#admin-user-table-body");
+    const subscriberTableBody = document.querySelector("#subscriber-table-body");
     const settingsForms = document.querySelectorAll("[data-settings-form]");
     const categoryStorageKey = "alocoupon_admin_category_preferences_v2";
     let currentOffers = [];
@@ -4830,6 +4980,26 @@ function adminPage(adminEmail = "") {
       }).join("") : '<tr><td colspan="7">Chưa có user.</td></tr>';
     }
 
+    async function loadSubscribers() {
+      const res = await fetch("/api/admin/subscribers");
+      const subscribers = res.ok ? await res.json() : [];
+      document.querySelector("#subscriber-total-count").textContent = String(subscribers.length);
+      document.querySelector("#subscriber-active-count").textContent = String(subscribers.filter((item) => item.status === "active").length);
+      document.querySelector("#subscriber-pending-count").textContent = String(subscribers.filter((item) => item.status === "pending").length);
+      const formatDate = (value) => value ? new Date(value).toLocaleString("vi-VN") : "—";
+      subscriberTableBody.innerHTML = subscribers.length ? subscribers.map((subscriber) => '<tr><td><strong>' + escapeHtml(subscriber.email) + '</strong></td><td><span class="cms-status-active">' + escapeHtml(subscriber.status) + '</span></td><td>' + escapeHtml(formatDate(subscriber.createdAt)) + '</td><td>' + escapeHtml(formatDate(subscriber.confirmedAt)) + '</td><td>' + escapeHtml(formatDate(subscriber.lastNotifiedAt)) + '</td><td><button class="cms-icon-btn danger delete-subscriber" type="button" data-id="' + escapeHtml(subscriber.id) + '" data-email="' + escapeHtml(subscriber.email) + '">×</button></td></tr>').join("") : '<tr><td colspan="6">Chưa có subscriber.</td></tr>';
+    }
+
+    subscriberTableBody.addEventListener("click", async (event) => {
+      const button = event.target.closest(".delete-subscriber");
+      if (!button || !confirm('Xóa subscriber "' + button.dataset.email + '"?')) return;
+      const res = await fetch("/api/admin/subscribers/" + encodeURIComponent(button.dataset.id), { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể xóa subscriber.");
+      await loadSubscribers();
+      showToast("Đã xóa subscriber.");
+    });
+
     adminUserForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const payload = Object.fromEntries(new FormData(adminUserForm));
@@ -4915,6 +5085,7 @@ function adminPage(adminEmail = "") {
     loadOffers();
     loadProjects();
     loadAdminUsers();
+    loadSubscribers();
     loadSiteSettings();
   </script>
 </body>
@@ -5150,9 +5321,9 @@ function storePage(group) {
     .brand-breadcrumb a { color: inherit; text-decoration: none; }
     .brand-breadcrumb strong { color: #3f5566; }
     .brand-hero { background: linear-gradient(135deg, #fff 60%, #edf9f5); border: 1px solid var(--store-line); border-radius: 22px; box-shadow: 0 16px 40px rgba(26, 52, 70, .08); overflow: hidden; padding: 30px; }
-    .brand-hero-main { align-items: center; display: grid; gap: 24px; grid-template-columns: 118px minmax(0, 1fr) 220px; }
-    .brand-logo-shell { align-items: center; background: #fff; border: 1px solid #dfe7ec; border-radius: 20px; box-shadow: 0 8px 22px rgba(17, 51, 75, .08); display: flex; height: 118px; justify-content: center; overflow: hidden; padding: 14px; position: relative; width: 118px; }
-    .brand-logo-shell img { height: 100%; object-fit: contain; position: relative; width: 100%; z-index: 1; }
+    .brand-hero-main { align-items: center; display: grid; gap: 26px; grid-template-columns: 136px minmax(0, 1fr) 220px; }
+    .brand-logo-shell { align-items: center; background: #fff; border: 1px solid #dfe7ec; border-radius: 22px; box-shadow: 0 8px 22px rgba(17, 51, 75, .08); display: flex; height: 136px; justify-content: center; overflow: hidden; padding: 5px; position: relative; width: 136px; }
+    .brand-logo-shell img { height: 100%; object-fit: contain; position: relative; transform: scale(1.18); width: 100%; z-index: 1; }
     .brand-logo-fallback { align-items: center; background: linear-gradient(145deg, #eef8fd, #e9f8f1); color: var(--store-blue); display: flex; font-size: 1.8rem; font-weight: 950; inset: 0; justify-content: center; position: absolute; }
     .brand-eyebrow { align-items: center; color: var(--store-green); display: flex; font-size: .72rem; font-weight: 950; gap: 7px; letter-spacing: .08em; margin: 0 0 9px; text-transform: uppercase; }
     .brand-eyebrow i { background: var(--store-green); border-radius: 50%; height: 7px; width: 7px; }
@@ -5201,8 +5372,8 @@ function storePage(group) {
     .brand-empty { background: #fff; border: 1px dashed #bac7cf; border-radius: 14px; color: #6e7f8b; padding: 30px; text-align: center; }
     .brand-trust-note { align-items: center; color: #748590; display: flex; font-size: .76rem; gap: 7px; justify-content: center; margin: 24px 0 0; }
     .brand-trust-note strong { color: var(--store-green); }
-    @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 100px 1fr; } .brand-logo-shell { height: 100px; width: 100px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
-    @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 16px; grid-template-columns: 76px 1fr; } .brand-logo-shell { border-radius: 14px; height: 76px; padding: 8px; width: 76px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
+    @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
+    @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 14px; grid-template-columns: 88px 1fr; } .brand-logo-shell { border-radius: 16px; height: 88px; padding: 7px; width: 88px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
   </style>
 </head>
 <body>
@@ -5325,6 +5496,65 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/newsletter/subscribe") {
+      enforceNewsletterRateLimit(req);
+      const payload = JSON.parse(await readBody(req, 20_000));
+      if (String(payload.website || "").trim()) return sendJson(res, 202, { ok: true, message: "Please check your inbox to confirm your subscription." });
+      const email = normalizeEmail(payload.email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error("Please enter a valid email address.");
+      const subscribers = readSubscribers();
+      let subscriber = subscribers.find((item) => item.email === email);
+      if (subscriber?.status === "active") return sendJson(res, 200, { ok: true, message: "This email is already subscribed." });
+      if (!subscriber) {
+        subscriber = { id: `sub_${crypto.randomBytes(12).toString("hex")}`, email, status: "pending", confirmVersion: crypto.randomBytes(12).toString("hex"), createdAt: new Date().toISOString(), confirmedAt: "", unsubscribedAt: "", lastNotifiedAt: "" };
+        subscribers.push(subscriber);
+      } else {
+        subscriber.status = "pending";
+        subscriber.confirmVersion = crypto.randomBytes(12).toString("hex");
+        subscriber.createdAt = new Date().toISOString();
+        subscriber.unsubscribedAt = "";
+      }
+      writeSubscribers(subscribers);
+      const delivery = await sendNewsletterConfirmation(subscriber);
+      sendJson(res, 202, {
+        ok: true,
+        emailConfigured: delivery.sent,
+        message: delivery.sent ? "Please check your inbox to confirm your subscription." : "Subscription saved. Email delivery is waiting for administrator configuration.",
+        ...(!isProduction && !delivery.sent ? { debugConfirmUrl: delivery.confirmUrl } : {}),
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/newsletter/confirm") {
+      const subscriber = getSubscriberFromToken(url.searchParams.get("token"), "confirm");
+      if (!subscriber) return send(res, 400, newsletterStatusPage("Invalid confirmation link", "This confirmation link is invalid or no longer available.", false), "text/html; charset=utf-8");
+      const subscribers = readSubscribers();
+      const current = subscribers.find((item) => item.id === subscriber.id);
+      current.status = "active";
+      current.confirmVersion = "";
+      current.confirmedAt = current.confirmedAt || new Date().toISOString();
+      current.unsubscribedAt = "";
+      writeSubscribers(subscribers);
+      send(res, 200, newsletterStatusPage("Subscription confirmed", "You will now receive the newest verified AloCoupon deals."), "text/html; charset=utf-8");
+      return;
+    }
+
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/newsletter/unsubscribe") {
+      const subscriber = getSubscriberFromToken(url.searchParams.get("token"), "unsubscribe");
+      if (!subscriber) {
+        if (req.method === "POST") return send(res, 200, "", "text/plain; charset=utf-8");
+        return send(res, 400, newsletterStatusPage("Invalid unsubscribe link", "This unsubscribe link is invalid or no longer available.", false), "text/html; charset=utf-8");
+      }
+      const subscribers = readSubscribers();
+      const current = subscribers.find((item) => item.id === subscriber.id);
+      current.status = "unsubscribed";
+      current.unsubscribedAt = new Date().toISOString();
+      writeSubscribers(subscribers);
+      if (req.method === "POST") return send(res, 200, "", "text/plain; charset=utf-8");
+      send(res, 200, newsletterStatusPage("You are unsubscribed", "You will no longer receive AloCoupon deal alerts. You can subscribe again at any time."), "text/html; charset=utf-8");
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/data-status") {
       sendJson(res, 200, getDataStatus());
       return;
@@ -5363,6 +5593,7 @@ const server = http.createServer(async (req, res) => {
         faviconData: settings.faviconData, seoTitle: settings.seoTitle,
         seoDescription: settings.seoDescription, couponDescription: settings.couponDescription,
         howToApply: settings.howToApply, menuItems: settings.menuItems,
+        widgetTitle: settings.widgetTitle, widgetContent: settings.widgetContent,
       });
       return;
     }
@@ -5384,6 +5615,24 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
       sendJson(res, 200, readAdminUsers());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/subscribers") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, readSubscribers().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      return;
+    }
+
+    const subscriberMatch = url.pathname.match(/^\/api\/admin\/subscribers\/([^/]+)$/);
+    if (req.method === "DELETE" && subscriberMatch) {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const subscriberId = decodeURIComponent(subscriberMatch[1]);
+      const subscribers = readSubscribers();
+      const subscriber = subscribers.find((item) => item.id === subscriberId);
+      if (!subscriber) return sendJson(res, 404, { error: "Subscriber not found." });
+      writeSubscribers(subscribers.filter((item) => item.id !== subscriberId));
+      sendJson(res, 200, subscriber);
       return;
     }
 
@@ -5518,7 +5767,10 @@ const server = http.createServer(async (req, res) => {
           errors.push({ row: index + 2, title: String(item.title || item.name || ""), error: error.message });
         }
       });
-      if (created.length) writeOffers([...created, ...readOffers()]);
+      if (created.length) {
+        writeOffers([...created, ...readOffers()]);
+        void notifySubscribersOfOffers(created);
+      }
       sendJson(res, errors.length ? 207 : 201, { created, errors, total: items.length });
       return;
     }
@@ -5533,6 +5785,7 @@ const server = http.createServer(async (req, res) => {
       const offer = sanitizeOffer(payload);
       const offers = readOffers();
       writeOffers([offer, ...offers]);
+      void notifySubscribersOfOffers([offer]);
       sendJson(res, 201, offer);
       return;
     }

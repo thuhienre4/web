@@ -49,6 +49,21 @@ Production can override admin emails with:
 ADMIN_EMAILS=hn084933@gmail.com,ecorpenglishbtl@gmail.com
 ```
 
+## Deal Email Newsletter
+
+The homepage newsletter uses double opt-in. Subscribers are stored in `data/subscribers.json`, which is ignored by Git. Publishing a new offer from Admin sends a personalized deal alert to confirmed subscribers.
+
+Configure these production environment variables:
+
+```env
+SITE_URL=https://alocoupon.com
+RESEND_API_KEY=re_xxxxxxxxx
+RESEND_FROM_EMAIL=AloCoupon <deals@alocoupon.com>
+NEWSLETTER_SECRET=replace-with-a-long-random-secret
+```
+
+Verify the sending domain in Resend before enabling production delivery. Without the Resend variables, local signups are still saved and return a local confirmation link for development testing.
+
 ## Deploy To Render
 
 Use a Node.js web service, not static hosting, because `/api/offers` and `/admin` need the server.

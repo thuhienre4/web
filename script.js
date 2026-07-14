@@ -4409,6 +4409,47 @@ if ("IntersectionObserver" in window) {
   revealItems.forEach((item) => item.classList.add("is-visible"));
 }
 
+const newsletterForm = document.querySelector("#newsletter-form");
+const newsletterStatus = document.querySelector("#newsletter-status");
+
+newsletterForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!newsletterForm.reportValidity()) return;
+  const button = newsletterForm.querySelector('button[type="submit"]');
+  const originalLabel = button.innerHTML;
+  newsletterStatus.className = "newsletter-status";
+  newsletterStatus.textContent = "Saving your subscription...";
+  button.disabled = true;
+  button.textContent = "Please wait...";
+  try {
+    const payload = Object.fromEntries(new FormData(newsletterForm));
+    const response = await fetch("/api/newsletter/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ email: payload.email, website: payload.website || "" }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Could not save your subscription.");
+    newsletterStatus.classList.add("is-success");
+    newsletterStatus.textContent = result.message || "Please check your inbox to confirm your subscription.";
+    if (result.debugConfirmUrl) {
+      const debugLink = document.createElement("a");
+      debugLink.href = result.debugConfirmUrl;
+      debugLink.textContent = " Confirm locally →";
+      debugLink.style.color = "inherit";
+      debugLink.style.fontWeight = "900";
+      newsletterStatus.appendChild(debugLink);
+    }
+    newsletterForm.reset();
+  } catch (error) {
+    newsletterStatus.classList.add("is-error");
+    newsletterStatus.textContent = error.message || "Could not save your subscription.";
+  } finally {
+    button.disabled = false;
+    button.innerHTML = originalLabel;
+  }
+});
+
 async function applyPublicSiteSettings() {
   if (window.location.protocol === "file:") return;
   try {
@@ -4424,6 +4465,10 @@ async function applyPublicSiteSettings() {
     if (heroTitle && settings.homeTitle) heroTitle.textContent = settings.homeTitle;
     if (heroDescription && settings.homeDescription) heroDescription.textContent = settings.homeDescription;
     if (tagline && settings.slogan) tagline.textContent = settings.slogan;
+    const newsletterTitle = document.querySelector("#newsletter-title");
+    const newsletterDescription = document.querySelector("#newsletter-description");
+    if (newsletterTitle && settings.widgetTitle) newsletterTitle.textContent = settings.widgetTitle;
+    if (newsletterDescription && settings.widgetContent) newsletterDescription.textContent = settings.widgetContent;
     const mainNav = document.querySelector(".main-nav");
     if (mainNav && settings.menuItems) {
       const entries = String(settings.menuItems).split(/\r?\n/).map((line) => line.split("|")).filter((entry) => entry[0]?.trim() && entry[1]?.trim());

@@ -15,6 +15,7 @@ const offersFile = path.join(dataDir, "offers.json");
 const projectsFile = path.join(dataDir, "projects.json");
 const trustpilotReviewsFile = path.join(dataDir, "trustpilot-reviews.json");
 const projectUploadsDir = path.join(dataDir, "project-uploads");
+const offerAssetsDir = path.join(dataDir, "offer-assets");
 const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
 const subscribersFile = path.join(dataDir, "subscribers.json");
@@ -2775,6 +2776,7 @@ const defaultSiteSettings = {
 function ensureDataFile() {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(projectUploadsDir, { recursive: true });
+  fs.mkdirSync(offerAssetsDir, { recursive: true });
   if (!fs.existsSync(offersFile)) {
     fs.writeFileSync(offersFile, JSON.stringify(starterOffers, null, 2));
   } else if (starterOffers.length) {
@@ -3230,6 +3232,61 @@ async function fetchPublicPage(value, redirectCount = 0) {
   }
 }
 
+async function fetchPublicImage(value, redirectCount = 0) {
+  const url = await assertPublicUrl(value);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; AloCouponImageBot/1.0; +https://alocoupon.com)",
+        Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.2",
+        Referer: new URL(value).origin + "/",
+      },
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      if (redirectCount >= 5) throw new Error("Too many image redirects.");
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Image redirect did not include a destination.");
+      return fetchPublicImage(new URL(location, url).href, redirectCount + 1);
+    }
+    if (!response.ok) throw new Error(`Image returned HTTP ${response.status}.`);
+    const contentType = String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const extensions = {
+      "image/png": "png",
+      "image/jpeg": "jpg",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/avif": "avif",
+      "image/x-icon": "ico",
+      "image/vnd.microsoft.icon": "ico",
+    };
+    const extension = extensions[contentType];
+    if (!extension) throw new Error("Unsupported image type.");
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > 5 * 1024 * 1024) throw new Error("Image is too large.");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024) throw new Error("Image is empty or too large.");
+    return { bytes, extension };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function cacheExtractedImage(value, kind) {
+  if (!value) return "";
+  if (String(value).startsWith("/media/offer-assets/")) return String(value);
+  const { bytes, extension } = await fetchPublicImage(value);
+  ensureDataFile();
+  const hash = crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 24);
+  const fileName = `${kind}-${hash}.${extension}`;
+  const filePath = path.join(offerAssetsDir, fileName);
+  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, bytes);
+  return `/media/offer-assets/${fileName}`;
+}
+
 function decodeImportedHtml(value) {
   return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#(?:39|x27);/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
 }
@@ -3285,9 +3342,15 @@ async function extractStoreAssets(value) {
   const { html, pageUrl } = await fetchPublicPage(value);
   const assets = discoverStoreAssets(html, pageUrl);
   const finalHost = new URL(pageUrl).hostname.toLowerCase().replace(/^www\./, "");
+  const logoSource = assets.logo || `https://www.google.com/s2/favicons?domain=${encodeURIComponent(finalHost)}&sz=256`;
+  let logo = "";
+  let productImage = "";
+  try { logo = await cacheExtractedImage(logoSource, "logo"); } catch {}
+  try { productImage = await cacheExtractedImage(assets.productImage, "product"); } catch {}
   return {
     ...assets,
-    logo: assets.logo || `https://www.google.com/s2/favicons?domain=${encodeURIComponent(finalHost)}&sz=256`,
+    logo,
+    productImage,
     sourceUrl: pageUrl,
     host: finalHost,
   };
@@ -3751,6 +3814,7 @@ function sanitizeOfferImage(value, label = "Image", maxBytes = 800 * 1024) {
   const image = String(value || "").trim();
   if (!image) return "";
   if (/^\/assets\/(?:brand-logos|product-images|brand-landings)\/[a-z0-9._-]+$/i.test(image)) return image;
+  if (/^\/media\/offer-assets\/(?:logo|product)-[a-f0-9]{24}\.(?:png|jpe?g|webp|gif|avif|ico)$/i.test(image)) return image;
   try {
     const url = new URL(image);
     if (url.protocol === "https:" && !url.username && !url.password) return url.href;
@@ -5299,6 +5363,27 @@ async function handleLogin(req, res) {
   });
 }
 
+function serveOfferAsset(req, res, pathname) {
+  const match = String(pathname || "").match(/^\/media\/offer-assets\/((?:logo|product)-[a-f0-9]{24}\.(?:png|jpe?g|webp|gif|avif|ico))$/i);
+  if (!match) return false;
+  const filePath = path.join(offerAssetsDir, match[1]);
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) throw new Error("Not a file");
+    res.writeHead(200, {
+      "Content-Type": types[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+      "Content-Length": stat.size,
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (req.method === "HEAD") res.end();
+    else fs.createReadStream(filePath).pipe(res);
+  } catch {
+    send(res, 404, "Image not found");
+  }
+  return true;
+}
+
 function serveStatic(req, res, pathname) {
   const safePath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(root, safePath));
@@ -6120,6 +6205,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" || req.method === "HEAD") {
+      if (serveOfferAsset(req, res, decodeURIComponent(url.pathname))) return;
       serveStatic(req, res, decodeURIComponent(url.pathname));
       return;
     }

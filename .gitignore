@@ -6,6 +6,7 @@ node_modules/
 data/admin-users.json
 data/subscribers.json
 data/project-uploads/
+data/offer-assets/
 *.log
 server.log
 server.err.log

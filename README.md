@@ -8,6 +8,7 @@ AloCoupon is a coupon and affiliate offer website with a small Node.js admin API
 - Partner offer API at `/api/offers`
 - Protected admin dashboard at `/admin`
 - Admin upload, edit, and delete for coupon/deal data
+- Private admin upload, download, and delete for source-code/project files with descriptions
 - JSON-backed data files in `data/`
 
 ## Run Locally
@@ -39,6 +40,7 @@ npm run check
 ## Data Files
 
 - `data/offers.json` starts empty so real offers can be uploaded from admin.
+- `data/projects.json` stores project metadata; uploaded files are stored in `data/project-uploads/`.
 - `data/admin-emails.json` controls which emails can log in locally.
 
 Production can override admin emails with:

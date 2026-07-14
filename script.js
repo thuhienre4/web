@@ -22,8 +22,8 @@ const translations = {
     "hero.copy": "Discover verified affiliate offers, featured stores, product reviews, and limited-time coupon codes for software, AI tools, ecommerce products, fashion, food, electronics, and more.",
     "hero.primary": "Browse Today's Deals",
     "hero.secondary": "Explore Stores",
-    "stores.title": "Popular Store",
-    "stores.link": "View All Stores",
+    "stores.title": "Popular Stores",
+    "stores.link": "View All Deals",
     "stores.intro": "Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.",
     "deals.title": "Deals Of Today",
     "deals.link": "Deals",
@@ -111,7 +111,7 @@ const translations = {
     "hero.primary": "Voir les offres du jour",
     "hero.secondary": "Explorer les boutiques",
     "stores.title": "Boutiques populaires",
-    "stores.link": "Voir toutes les boutiques",
+    "stores.link": "Voir toutes les offres",
     "stores.intro": "Explorez les boutiques et marques avec des campagnes d'affiliation actives, des remises produits et des opportunités de coupons.",
     "deals.title": "Offres du jour",
     "deals.link": "Offres",
@@ -199,7 +199,7 @@ const translations = {
     "hero.primary": "Ver ofertas de hoje",
     "hero.secondary": "Explorar lojas",
     "stores.title": "Lojas populares",
-    "stores.link": "Ver todas as lojas",
+    "stores.link": "Ver todas as ofertas",
     "stores.intro": "Explore lojas e marcas com campanhas de afiliados ativas, descontos em produtos e oportunidades de cupons.",
     "deals.title": "Ofertas de hoje",
     "deals.link": "Ofertas",
@@ -362,6 +362,10 @@ function bindCouponButton(button) {
       }, 2200);
     } catch {
       showToast(t("fallbackToast").replace("{code}", code));
+    } finally {
+      if (safeLink !== "#") {
+        openAffiliateLinkAfterDelay(safeLink);
+      }
     }
   });
 }
@@ -420,8 +424,22 @@ document.querySelectorAll(".store-search").forEach((form) => {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const panel = form.closest(".is-tool-panel");
+    const query = normalizeDealSearch(form.querySelector('input[type="search"]')?.value || "");
+    const cards = Array.from(panel?.querySelectorAll(".store-coupon-card") || []);
+
+    cards.forEach((card) => {
+      const searchable = normalizeDealSearch(card.textContent || "");
+      card.classList.toggle("is-search-hidden", Boolean(query && !searchable.includes(query)));
+    });
+
+    panel?.querySelectorAll(".store-coupon-group").forEach((group) => {
+      const hasMatch = group.querySelector(".store-coupon-card:not(.is-search-hidden)");
+      group.classList.toggle("is-search-hidden", !hasMatch);
+    });
+
     openStoreToolPanel(panel?.id || "store-detail");
-    showToast("Showing matched store coupons.");
+    const matchedCount = cards.filter((card) => !card.classList.contains("is-search-hidden")).length;
+    showToast(query ? `Found ${matchedCount} matching store offers.` : "Showing all store coupons.");
   });
 });
 
@@ -446,7 +464,7 @@ document.querySelectorAll(".coupon-tab").forEach((tab) => {
     });
 
     panel?.querySelectorAll(".store-coupon-group").forEach((group) => {
-      const visibleCards = group.querySelectorAll(".store-coupon-card:not(.is-hidden)");
+      const visibleCards = group.querySelectorAll(".store-coupon-card:not(.is-hidden):not(.is-search-hidden)");
       group.classList.toggle("is-hidden", visibleCards.length === 0);
     });
   });
@@ -455,6 +473,7 @@ document.querySelectorAll(".coupon-tab").forEach((tab) => {
 document.querySelectorAll(".store-coupon-action").forEach((button) => {
   button.addEventListener("click", async () => {
     const code = button.dataset.code;
+    const safeLink = button.dataset.link || "#";
     const originalLabel = button.textContent;
 
     try {
@@ -466,6 +485,10 @@ document.querySelectorAll(".store-coupon-action").forEach((button) => {
       }, 1800);
     } catch {
       showToast(`Coupon code: ${code}`);
+    } finally {
+      if (safeLink !== "#") {
+        openAffiliateLinkAfterDelay(safeLink);
+      }
     }
   });
 });
@@ -476,6 +499,7 @@ const dealEmptyStateEl = document.querySelector("#deal-empty-state");
 const dealCategoryFilterEl = document.querySelector("#deal-category-filter");
 const dealSearchInputEl = document.querySelector("#deal-search-input");
 const dealSortSelectEl = document.querySelector("#deal-sort-select");
+const dealSliderDotsEl = document.querySelector("#deal-slider-dots");
 const liveCouponListEl = document.querySelector("#live-coupon-list");
 const liveStoreInitialsEl = document.querySelector("#live-store-initials");
 const liveStoreNameEl = document.querySelector("#live-store-name");
@@ -3171,7 +3195,12 @@ const starterAffiliateItems = [
 const featuredCouponItems = [];
 let activeDealCategory = "all";
 let activeDealType = "all";
+let activeDealStore = "all";
 let lastAffiliateItems = [];
+let activeDealPage = 0;
+let activeHeroStoreIndex = 0;
+let heroAutoplayTimer = null;
+const dealsPerPage = 12;
 
 async function getAffiliateItems() {
   if (window.location.protocol === "file:") {
@@ -3207,6 +3236,19 @@ function getSafeAffiliateUrl(value) {
   } catch {
     return "#";
   }
+}
+
+function getAffiliateDomain(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function getAffiliateFaviconUrl(value) {
+  const domain = getAffiliateDomain(value);
+  return domain ? `https://${domain}/favicon.ico` : "";
 }
 
 function addAloCouponUtmToAffiliate(value) {
@@ -3558,6 +3600,7 @@ function createUploadedDealCard(item, index) {
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
   const safeLink = getAloCouponAffiliateUrl(item.link);
+  const detailLink = getOfferDealUrl(item);
   const rawLink = escapeHtml(item.link || "");
   const brandName = getOfferBrandName(item);
   const displayTitle = getDisplayOfferTitle(item);
@@ -3570,6 +3613,10 @@ function createUploadedDealCard(item, index) {
   const category = escapeHtml(item.category || "Deal");
   const expiry = escapeHtml(item.expiry || "Limited time");
   const review = escapeHtml(getOfferSummary(item));
+  const dealImage = item.productImage || item.logo;
+  const logo = dealImage
+    ? `<img class="deal-product-logo" src="${escapeHtml(dealImage)}" alt="${brand}" />`
+    : `<span class="deal-product-placeholder"><strong>${initials}</strong><small>${brand}</small></span>`;
   const buttonLabel = getOfferButtonLabel(item);
   const mediaClasses = ["", "green", "amber"];
   const mediaClass = mediaClasses[index % mediaClasses.length];
@@ -3593,6 +3640,7 @@ function createUploadedDealCard(item, index) {
     uploadedAt
   ].join(" ").toLowerCase();
   article.dataset.category = normalizeCategoryKey(item.category || "Other");
+  article.dataset.store = normalizeStoreKey(item.brand || brandName);
   article.dataset.originalIndex = String(index);
   article.dataset.offerType = hasCode ? "coupon" : "deal";
   article.dataset.discountScore = String(getDiscountScore(item.discount));
@@ -3601,28 +3649,50 @@ function createUploadedDealCard(item, index) {
   article.dataset.searchTitle = normalizeDealSearch(displayTitle);
   article.dataset.searchCode = normalizeDealSearch(rawCode);
   article.dataset.searchScore = "0";
+  article.dataset.offerId = String(item.id || index);
 
   article.innerHTML = `
     <div class="deal-media ${mediaClass}">
-      <span class="deal-badge">${offerType}</span>
-      <strong>${discount}</strong>
-      <small>${brand}</small>
+      <span class="deal-flash" aria-hidden="true">⚡</span>
+      ${logo}
     </div>
     <div class="deal-content">
       <div class="brand-highlight">
         ${getBrandMark(item, initials)}
         <p class="store-name">${brand}</p>
       </div>
-      <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
+      <h3><a class="deal-title-link" href="${detailLink}">${title}</a></h3>
       <p class="product-desc">${review}</p>
-      <div class="price-line"><span>${discount}</span><small>${timingLabel}</small></div>
+      <div class="deal-price-row">
+        <div class="price-line"><small>${hasCode ? `Code: ${code}` : timingLabel}</small><span>${discount}</span></div>
+        <button class="deal-favorite" type="button" aria-label="Save ${brand} deal" aria-pressed="false">♥</button>
+      </div>
       <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>
   `;
 
   bindCouponButton(article.querySelector(".claim-btn"));
+  bindFavoriteButton(article.querySelector(".deal-favorite"), article.dataset.offerId);
   return article;
+}
+
+function bindFavoriteButton(button, offerId) {
+  const storageKey = `alocoupon-favorite-${offerId}`;
+  const syncState = (active) => {
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", active ? "Remove saved deal" : "Save deal");
+  };
+
+  syncState(localStorage.getItem(storageKey) === "1");
+  button.addEventListener("click", () => {
+    const active = button.getAttribute("aria-pressed") !== "true";
+    syncState(active);
+    if (active) localStorage.setItem(storageKey, "1");
+    else localStorage.removeItem(storageKey);
+    showToast(active ? "Deal saved." : "Deal removed from saved items.");
+  });
 }
 
 function getStoreInitials(name) {
@@ -3635,7 +3705,8 @@ function getStoreInitials(name) {
 
 function getBrandMark(item, initials, small = false) {
   const logo = String(item?.logo || "");
-  const isSafeLogo = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/]+=*$/i.test(logo);
+  const isSafeLogo = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/]+=*$/i.test(logo)
+    || /^\/assets\/brand-logos\/[a-z0-9._-]+$/i.test(logo);
   if (isSafeLogo) {
     return `<img class="brand-logo${small ? " small" : ""}" src="${logo}" alt="" loading="lazy" />`;
   }
@@ -3677,6 +3748,10 @@ function bindStoreCouponAction(button) {
       }, 1800);
     } catch {
       showToast(`Coupon code: ${code}`);
+    } finally {
+      if (safeLink !== "#") {
+        openAffiliateLinkAfterDelay(safeLink);
+      }
     }
   });
 }
@@ -3821,17 +3896,30 @@ function filterDeals(query = "") {
       .forEach((item) => dealSearchResultsEl.appendChild(item.deal));
   }
 
-  deals.forEach((deal) => {
+  const orderedDeals = dealSearchResultsEl
+    ? Array.from(dealSearchResultsEl.querySelectorAll(".searchable-deal"))
+    : deals;
+  const matchedDeals = [];
+  orderedDeals.forEach((deal) => {
     const score = Number(deal.dataset.searchScore || 0);
     const isStrongSearchMatch = score >= 58;
     const isClosestSearchMatch = maxSearchScore > 0 && score >= Math.max(35, maxSearchScore - 10);
     const matchesQuery = !normalizedQuery || isStrongSearchMatch || isClosestSearchMatch;
     const matchesType = activeDealType === "all" || deal.dataset.offerType === activeDealType;
     const matchesCategory = activeDealCategory === "all" || deal.dataset.category === activeDealCategory;
-    deal.hidden = !(matchesQuery && matchesType);
+    const matchesStore = activeDealStore === "all" || deal.dataset.store === activeDealStore;
+    const matchesFilter = matchesQuery && matchesType && matchesCategory && matchesStore;
+    deal.dataset.filterMatch = String(matchesFilter);
+    deal.hidden = !matchesFilter;
     deal.classList.toggle("is-category-highlight", matchesQuery && matchesType && matchesCategory && activeDealCategory !== "all");
-    if (matchesQuery && matchesType) visibleCount += 1;
+    if (matchesFilter) {
+      visibleCount += 1;
+      matchedDeals.push(deal);
+    }
   });
+
+  activeDealPage = 0;
+  renderDealPagination(matchedDeals);
 
   if (dealEmptyStateEl) {
     dealEmptyStateEl.hidden = visibleCount !== 0;
@@ -3929,11 +4017,204 @@ async function renderUploadedDealsInMainGrid() {
   dealSearchResultsEl.querySelectorAll(".uploaded-public-deal").forEach((item) => item.remove());
   const items = await getAffiliateItems();
   lastAffiliateItems = items;
+  renderLandingHero(items);
+  renderPopularStores(items);
   renderDealCategoryFilters(items);
   items.forEach((item, index) => {
     dealSearchResultsEl.appendChild(createUploadedDealCard(item, index));
   });
   filterDeals(dealSearchInputEl?.value || document.querySelector(".search-box input")?.value || "");
+}
+
+function renderLandingHeroLegacy(items) {
+  const banner = document.querySelector(".home-feature-banner");
+  const featured = items.find((item) => item.landingImage);
+  if (!banner || !featured) return;
+  const brand = getOfferBrandName(featured);
+  const image = banner.querySelector("img");
+  const label = banner.querySelector(".home-banner-copy small");
+  const title = banner.querySelector(".home-banner-copy strong");
+  if (image) {
+    image.src = featured.landingImage;
+    image.alt = `${brand} featured deal`;
+  }
+  if (label) label.textContent = `${brand} · ALOCOUPON PICK`;
+  if (title) title.textContent = getDisplayOfferTitle(featured);
+}
+
+function renderLandingHero(items) {
+  const carousel = document.querySelector(".home-feature-carousel");
+  const banner = carousel?.querySelector(".home-feature-banner");
+  const rail = carousel?.querySelector(".home-store-rail");
+  const dots = carousel?.querySelector(".home-banner-dots");
+  if (!carousel || !banner || !rail || !dots) return;
+
+  const storeMap = new Map();
+  items.forEach((item) => {
+    const brand = getOfferBrandName(item);
+    const key = normalizeStoreKey(item.brand || brand);
+    if (!key || storeMap.has(key) || !(item.productImage || item.landingImage || item.logo)) return;
+    storeMap.set(key, { key, brand, item });
+  });
+  const stores = Array.from(storeMap.values());
+  if (!stores.length) return;
+  activeHeroStoreIndex = Math.min(activeHeroStoreIndex, stores.length - 1);
+
+  rail.innerHTML = `
+    <button class="home-store-chip${activeDealStore === "all" ? " is-filtered" : ""}" type="button" data-store-key="all">All stores</button>
+    ${stores.map(({ key, brand, item }, index) => {
+      const mark = item.logo
+        ? `<img src="${escapeHtml(item.logo)}" alt="" />`
+        : `<span>${escapeHtml(getStoreInitials(brand))}</span>`;
+      return `<button class="home-store-chip" type="button" data-store-index="${index}" data-store-key="${escapeHtml(key)}">${mark}<b>${escapeHtml(brand)}</b></button>`;
+    }).join("")}
+  `;
+  dots.innerHTML = stores.map(({ brand }, index) => `
+    <button type="button" data-store-index="${index}" aria-label="Show ${escapeHtml(brand)}" aria-pressed="false"></button>
+  `).join("");
+
+  const selectStore = (index, options = {}) => {
+    activeHeroStoreIndex = (index + stores.length) % stores.length;
+    const { item, brand, key } = stores[activeHeroStoreIndex];
+    const image = banner.querySelector("img");
+    const label = banner.querySelector(".home-banner-copy small");
+    const title = banner.querySelector(".home-banner-copy strong");
+    const source = item.productImage || item.landingImage || item.logo;
+    banner.classList.toggle("uses-product-image", Boolean(item.productImage));
+    if (image) {
+      image.src = source;
+      image.alt = `${brand} product deal`;
+    }
+    if (label) label.textContent = `${brand} · ALOCOUPON PICK`;
+    if (title) title.textContent = getDisplayOfferTitle(item);
+    rail.querySelectorAll("[data-store-index]").forEach((button) => {
+      button.classList.toggle("is-active", Number(button.dataset.storeIndex) === activeHeroStoreIndex);
+    });
+    dots.querySelectorAll("[data-store-index]").forEach((button) => {
+      const isActive = Number(button.dataset.storeIndex) === activeHeroStoreIndex;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+    rail.querySelector(`[data-store-index="${activeHeroStoreIndex}"]`)?.scrollIntoView({ behavior: options.instant ? "auto" : "smooth", inline: "center", block: "nearest" });
+    if (options.filter) {
+      activeDealStore = key;
+      rail.querySelectorAll("[data-store-key]").forEach((button) => button.classList.toggle("is-filtered", button.dataset.storeKey === key));
+      filterDeals(dealSearchInputEl?.value || "");
+      if (options.scroll) document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      showToast(`Showing deals from ${brand}.`);
+    }
+  };
+
+  rail.querySelector('[data-store-key="all"]')?.addEventListener("click", () => {
+    activeDealStore = "all";
+    rail.querySelectorAll("[data-store-key]").forEach((button) => button.classList.toggle("is-filtered", button.dataset.storeKey === "all"));
+    filterDeals(dealSearchInputEl?.value || "");
+    document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast("Showing deals from all stores.");
+  });
+  rail.querySelectorAll("[data-store-index]").forEach((button) => {
+    button.addEventListener("click", () => selectStore(Number(button.dataset.storeIndex), { filter: true }));
+  });
+  dots.querySelectorAll("[data-store-index]").forEach((button) => {
+    button.addEventListener("click", () => selectStore(Number(button.dataset.storeIndex)));
+  });
+  banner.querySelector(".is-prev")?.addEventListener("click", () => selectStore(activeHeroStoreIndex - 1));
+  banner.querySelector(".is-next")?.addEventListener("click", () => selectStore(activeHeroStoreIndex + 1));
+  banner.querySelector(".home-banner-action")?.addEventListener("click", () => selectStore(activeHeroStoreIndex, { filter: true, scroll: true }));
+
+  const startAutoplay = () => {
+    clearInterval(heroAutoplayTimer);
+    heroAutoplayTimer = setInterval(() => selectStore(activeHeroStoreIndex + 1), 6500);
+  };
+  carousel.addEventListener("mouseenter", () => clearInterval(heroAutoplayTimer));
+  carousel.addEventListener("mouseleave", startAutoplay);
+  carousel.addEventListener("focusin", () => clearInterval(heroAutoplayTimer));
+  carousel.addEventListener("focusout", startAutoplay);
+  selectStore(activeHeroStoreIndex, { instant: true });
+  startAutoplay();
+}
+
+function renderDealPagination(matchedDeals) {
+  const deals = Array.from(document.querySelectorAll("#deals .searchable-deal"));
+  const totalPages = Math.ceil(matchedDeals.length / dealsPerPage);
+  activeDealPage = Math.max(0, Math.min(activeDealPage, Math.max(0, totalPages - 1)));
+  const start = activeDealPage * dealsPerPage;
+  const pageItems = new Set(matchedDeals.slice(start, start + dealsPerPage));
+
+  deals.forEach((deal) => {
+    deal.hidden = !pageItems.has(deal);
+  });
+
+  if (!dealSliderDotsEl) return;
+  dealSliderDotsEl.hidden = totalPages <= 1;
+  dealSliderDotsEl.innerHTML = Array.from({ length: totalPages }, (_, index) => `
+    <button class="deal-page-dot${index === activeDealPage ? " is-active" : ""}" type="button" data-page="${index}" aria-label="Show deal page ${index + 1}" aria-pressed="${index === activeDealPage}"></button>
+  `).join("");
+  dealSliderDotsEl.querySelectorAll(".deal-page-dot").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeDealPage = Number(button.dataset.page || 0);
+      const currentMatches = deals.filter((deal) => deal.dataset.filterMatch === "true");
+      renderDealPagination(currentMatches);
+      document.querySelector("#deals .section-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+function renderPopularStores(items) {
+  const grid = document.querySelector("#popular-store-grid");
+  if (!grid) return;
+  const stores = new Map();
+  items.forEach((item) => {
+    const brand = getOfferBrandName(item);
+    const key = brand.trim().toLowerCase();
+    if (!key) return;
+    if (!stores.has(key)) stores.set(key, { brand, items: [], item });
+    const store = stores.get(key);
+    store.items.push(item);
+    if (!store.item.logo && item.logo) store.item = item;
+  });
+  const popular = Array.from(stores.values()).slice(0, 15);
+  grid.innerHTML = popular.map(({ brand, item, items: storeItems }) => {
+    const initials = escapeHtml(getStoreInitials(brand));
+    const domain = getAffiliateDomain(item.link);
+    const favicon = getAffiliateFaviconUrl(item.link);
+    const logoSource = String(item.logo || favicon || "");
+    const logo = logoSource
+      ? `<img src="${escapeHtml(logoSource)}" data-favicon="${escapeHtml(favicon)}" alt="${escapeHtml(brand)} logo" loading="lazy" /><span class="store-logo-fallback" aria-hidden="true">${initials}</span>`
+      : `<span class="store-logo-fallback is-visible" aria-hidden="true">${initials}</span>`;
+    const slug = slugify(brand) || "store";
+    const offerCount = storeItems.length;
+    const bestOffer = escapeHtml(getBestOffer(storeItems));
+    const offerLabel = `${offerCount} ${offerCount === 1 ? "offer" : "offers"}`;
+    return `
+      <a class="store-card" href="/store/${encodeURIComponent(slug)}" aria-label="View ${escapeHtml(brand)} coupons and deals">
+        <div class="store-card-top">
+          <div class="store-logo dynamic-store-logo">${logo}</div>
+          <span class="store-offer-count">${offerLabel}</span>
+        </div>
+        <div class="store-card-content">
+          <h3>${escapeHtml(brand)}</h3>
+          ${domain ? `<p class="store-domain">${escapeHtml(domain)}</p>` : ""}
+        </div>
+        <div class="store-card-bottom">
+          <span class="store-best-offer">${bestOffer}</span>
+          <span class="store-card-cta">View coupons <b aria-hidden="true">→</b></span>
+        </div>
+      </a>`;
+  }).join("");
+
+  grid.querySelectorAll(".dynamic-store-logo img").forEach((image) => {
+    image.addEventListener("error", () => {
+      const fallbackUrl = image.dataset.favicon || "";
+      if (fallbackUrl && image.dataset.fallbackTried !== "true") {
+        image.dataset.fallbackTried = "true";
+        image.src = fallbackUrl;
+        return;
+      }
+      image.hidden = true;
+      image.nextElementSibling?.classList.add("is-visible");
+    });
+  });
 }
 
 dealSearchInputEl?.addEventListener("input", (event) => {
@@ -4003,6 +4284,70 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
   }
 });
 
+async function renderTrustpilotReviews() {
+  const grid = document.querySelector("#trustpilot-feedback-grid");
+  if (!grid) return;
+  try {
+    const response = await fetch("/api/trustpilot-reviews", { headers: { Accept: "application/json" } });
+    const items = response.ok ? await response.json() : [];
+    if (!Array.isArray(items) || !items.length) return;
+    grid.innerHTML = items.slice(0, 6).map((item, index) => {
+      const review = Array.isArray(item.reviews) ? item.reviews[0] : null;
+      const starsValue = Math.max(0, Math.min(5, Math.round(Number(review?.stars || item.trustScore || 0))));
+      const stars = `${"★".repeat(starsValue)}${"☆".repeat(5 - starsValue)}`;
+      const initials = escapeHtml(getStoreInitials(item.displayName || item.domain));
+      const sourceUrl = getSafeAffiliateUrl(review?.sourceUrl || item.profileUrl);
+      const reviewText = review?.text || `${item.reviewCount || 0} public Trustpilot reviews with a TrustScore of ${Number(item.trustScore || 0).toFixed(1)}.`;
+      return `
+        <article class="feedback-card">
+          <div class="feedback-head">
+            <span class="avatar${index % 3 === 1 ? " teal" : index % 3 === 2 ? " gold" : ""}">${initials}</span>
+            <span class="stars" aria-label="${starsValue} out of 5 stars">${stars}</span>
+          </div>
+          <h3>${escapeHtml(item.displayName || item.domain)}</h3>
+          <p>${escapeHtml(reviewText)}</p>
+          <p class="trustpilot-review-meta">${escapeHtml(review?.consumer || "Trustpilot reviewers")} · ${Number(item.reviewCount || 0).toLocaleString()} reviews</p>
+          <a class="source-note" href="${sourceUrl}" target="_blank" rel="noopener">View original review on Trustpilot</a>
+        </article>
+      `;
+    }).join("");
+  } catch {
+    grid.innerHTML = `<p class="trustpilot-empty">Trustpilot data is temporarily unavailable.</p>`;
+  }
+}
+
+async function renderTrustpilotReviews() {
+  const grid = document.querySelector("#trustpilot-feedback-grid");
+  if (!grid) return;
+  try {
+    const response = await fetch("/api/trustpilot-reviews", { headers: { Accept: "application/json" } });
+    const items = response.ok ? await response.json() : [];
+    if (!Array.isArray(items) || !items.length) return;
+    grid.innerHTML = items.slice(0, 6).map((item, index) => {
+      const review = Array.isArray(item.reviews) ? item.reviews[0] : null;
+      const starsValue = Math.max(0, Math.min(5, Math.round(Number(review?.stars || item.trustScore || 0))));
+      const stars = `${"★".repeat(starsValue)}${"☆".repeat(5 - starsValue)}`;
+      const initials = escapeHtml(getStoreInitials(item.displayName || item.domain));
+      const sourceUrl = getSafeAffiliateUrl(review?.sourceUrl || item.profileUrl);
+      const reviewText = review?.text || `${item.reviewCount || 0} public Trustpilot reviews with a TrustScore of ${Number(item.trustScore || 0).toFixed(1)}.`;
+      return `
+        <article class="feedback-card">
+          <div class="feedback-head">
+            <span class="avatar${index % 3 === 1 ? " teal" : index % 3 === 2 ? " gold" : ""}">${initials}</span>
+            <span class="stars" aria-label="${starsValue} out of 5 stars">${stars}</span>
+          </div>
+          <h3>${escapeHtml(item.displayName || item.domain)}</h3>
+          <p>${escapeHtml(reviewText)}</p>
+          <p class="trustpilot-review-meta">${escapeHtml(review?.consumer || "Trustpilot reviewers")} · ${Number(item.reviewCount || 0).toLocaleString()} reviews</p>
+          <a class="source-note" href="${sourceUrl}" target="_blank" rel="noopener">View original review on Trustpilot</a>
+        </article>
+      `;
+    }).join("");
+  } catch {
+    grid.innerHTML = `<p class="trustpilot-empty">Trustpilot data is temporarily unavailable.</p>`;
+  }
+}
+
 document.querySelectorAll(".language-switch").forEach((switcher) => {
   const trigger = switcher.querySelector(".language-trigger");
 
@@ -4064,7 +4409,63 @@ if ("IntersectionObserver" in window) {
   revealItems.forEach((item) => item.classList.add("is-visible"));
 }
 
+async function applyPublicSiteSettings() {
+  if (window.location.protocol === "file:") return;
+  try {
+    const response = await fetch("/api/site-settings", { headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const settings = await response.json();
+    if (settings.seoTitle) document.title = settings.seoTitle;
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (metaDescription && settings.seoDescription) metaDescription.content = settings.seoDescription;
+    const heroTitle = document.querySelector("#home h1");
+    const heroDescription = document.querySelector("#home .hero-copy");
+    const tagline = document.querySelector(".header-tagline");
+    if (heroTitle && settings.homeTitle) heroTitle.textContent = settings.homeTitle;
+    if (heroDescription && settings.homeDescription) heroDescription.textContent = settings.homeDescription;
+    if (tagline && settings.slogan) tagline.textContent = settings.slogan;
+    const mainNav = document.querySelector(".main-nav");
+    if (mainNav && settings.menuItems) {
+      const entries = String(settings.menuItems).split(/\r?\n/).map((line) => line.split("|")).filter((entry) => entry[0]?.trim() && entry[1]?.trim());
+      if (entries.length) {
+        mainNav.querySelectorAll("a").forEach((link) => link.remove());
+        const firstButton = mainNav.querySelector("button");
+        entries.forEach(([label, href]) => {
+          const link = document.createElement("a");
+          link.textContent = label.trim();
+          link.href = href.trim();
+          mainNav.insertBefore(link, firstButton);
+        });
+      }
+    }
+    const brand = document.querySelector(".brand");
+    if (brand && settings.siteName) brand.setAttribute("aria-label", `${settings.siteName} home`);
+    if (brand && settings.logoData) {
+      brand.querySelectorAll(".brand-mark, .brand-word").forEach((item) => { item.hidden = true; });
+      let customLogo = brand.querySelector(".custom-site-logo");
+      if (!customLogo) {
+        customLogo = document.createElement("img");
+        customLogo.className = "custom-site-logo";
+        brand.appendChild(customLogo);
+      }
+      customLogo.src = settings.logoData;
+      customLogo.alt = settings.siteName || "Site logo";
+    }
+    if (settings.faviconData) {
+      let favicon = document.querySelector('link[rel="icon"]');
+      if (!favicon) {
+        favicon = document.createElement("link");
+        favicon.rel = "icon";
+        document.head.appendChild(favicon);
+      }
+      favicon.href = settings.faviconData;
+    }
+  } catch {}
+}
+
 applyLanguage(currentLang);
+applyPublicSiteSettings();
 renderUploadedDealsInMainGrid();
 renderAffiliateItems();
 renderLiveCouponStore();
+renderTrustpilotReviews();

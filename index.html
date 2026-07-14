@@ -28,7 +28,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
     <script type="application/ld+json">
@@ -82,7 +82,7 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260713-11" />
   </head>
   <body>
     <header class="site-header">
@@ -96,6 +96,7 @@
           </span>
           <span class="brand-word"><span>Alo</span><span>Coupon</span></span>
         </a>
+        <p class="header-tagline">Your Trusted Marketplace for Coupons &amp; Deals</p>
         <nav class="main-nav" aria-label="Primary navigation">
           <a href="#stores" data-i18n="nav.stores">Stores</a>
           <a href="#deals" data-i18n="nav.deals">Deals</a>
@@ -137,10 +138,10 @@
     <main id="home">
       <section class="hero reveal">
         <div class="container hero-inner">
-          <p class="eyebrow" data-i18n="hero.eyebrow">Leading Coupons & Deals Marketplace</p>
-          <h1 data-i18n="hero.title">Leading Coupons & Deals Marketplace</h1>
+          <p class="eyebrow">Verified by AloCoupon</p>
+          <h1>Codes that actually work.</h1>
           <p class="hero-copy">
-            <span data-i18n="hero.copy">Discover verified affiliate offers, featured stores, product reviews, and limited-time coupon codes for software, AI tools, ecommerce products, fashion, food, electronics, and more.</span>
+            Other sites guess. We verify. Every offer is reviewed, organized, and published from real partner data before you see it.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="#deals" data-i18n="hero.primary">Browse Today's Deals</a>
@@ -151,21 +152,20 @@
             <span><strong>Coupon</strong> codes and deals</span>
             <span><strong>Review</strong> signals before checkout</span>
           </div>
-        </div>
-      </section>
-
-      <section class="logo-strip reveal" aria-label="Featured affiliate projects">
-        <div class="container logo-grid">
-          <a class="logo-tile" href="#deals">
-            <img src="assets/wpvivid-logo.svg" alt="WPvivid" />
-          </a>
-          <a class="logo-tile" href="#deals">
-            <img src="assets/barn2-logo.svg" alt="Barn2" />
-          </a>
-          <a class="logo-tile text-tile" href="#deals">TAJA AI</a>
-          <a class="logo-tile text-tile" href="#deals">Vidfly</a>
-          <a class="logo-tile text-tile" href="#deals">Byfood</a>
-          <a class="logo-tile text-tile" href="#deals">YEELIGHT</a>
+          <div class="home-feature-carousel" aria-label="Featured stores">
+            <div class="home-store-rail" aria-label="Choose a store"></div>
+            <div class="home-feature-banner">
+              <span class="home-banner-copy">
+                <small>ALOCOUPON PICKS</small>
+                <strong>Discover verified deals from brands you already love</strong>
+                <button class="home-banner-action" type="button">Explore this store →</button>
+              </span>
+              <span class="home-banner-visual"><img src="assets/affiliate-hero.png" alt="Featured online shopping and coupon deals" /></span>
+              <button class="home-banner-arrow is-prev" type="button" aria-label="Previous store">‹</button>
+              <button class="home-banner-arrow is-next" type="button" aria-label="Next store">›</button>
+            </div>
+            <div class="home-banner-dots" aria-label="Featured store slides"></div>
+          </div>
         </div>
       </section>
 
@@ -373,33 +373,36 @@
         </div>
       </section>
 
-      <section class="section deal-band reveal" id="deals">
+      <section class="section deal-band reveal is-visible" id="deals">
         <div class="container">
+          <div class="deal-slider-dots" id="deal-slider-dots" aria-label="Deal pages"></div>
           <div class="section-title">
             <h2 data-i18n="deals.title">Deals Of Today</h2>
             <a href="#deals" data-i18n="deals.link">Deals</a>
           </div>
-          <p class="section-intro" data-i18n="deals.intro">Compare current promo codes, free trials, and limited-time savings before visiting each product website.</p>
-          <div class="deal-finder" aria-label="Find deals">
-            <label class="deal-finder-search">
-              <span>Find deal</span>
-              <input id="deal-search-input" type="search" placeholder="Store, code, discount..." aria-label="Search deals by store, code, or discount" />
-            </label>
-            <div class="deal-type-filter" aria-label="Deal type">
-              <button class="deal-type-btn is-active" type="button" data-deal-type="all">All</button>
-              <button class="deal-type-btn" type="button" data-deal-type="coupon">Coupon</button>
-              <button class="deal-type-btn" type="button" data-deal-type="deal">Deal</button>
+          <details class="deal-tools">
+            <summary>Find &amp; filter deals</summary>
+            <div class="deal-finder" aria-label="Find deals">
+              <label class="deal-finder-search">
+                <span>Find deal</span>
+                <input id="deal-search-input" type="search" placeholder="Store, code, discount..." aria-label="Search deals by store, code, or discount" />
+              </label>
+              <div class="deal-type-filter" aria-label="Deal type">
+                <button class="deal-type-btn is-active" type="button" data-deal-type="all">All</button>
+                <button class="deal-type-btn" type="button" data-deal-type="coupon">Coupon</button>
+                <button class="deal-type-btn" type="button" data-deal-type="deal">Deal</button>
+              </div>
+              <label class="deal-sort-control">
+                <span>Sort</span>
+                <select id="deal-sort-select" aria-label="Sort deals">
+                  <option value="featured">Featured</option>
+                  <option value="discount">Highest discount</option>
+                  <option value="latest">Latest uploaded</option>
+                </select>
+              </label>
             </div>
-            <label class="deal-sort-control">
-              <span>Sort</span>
-              <select id="deal-sort-select" aria-label="Sort deals">
-                <option value="featured">Featured</option>
-                <option value="discount">Highest discount</option>
-                <option value="latest">Latest uploaded</option>
-              </select>
-            </label>
-          </div>
-          <div class="deal-category-filter" id="deal-category-filter" aria-label="Filter deals by category"></div>
+            <div class="deal-category-filter" id="deal-category-filter" aria-label="Filter deals by category"></div>
+          </details>
           <div class="deal-grid" id="deal-search-results"></div>
           <p class="deal-empty-state" id="deal-empty-state">No real deals yet. Admin-approved offers will appear here.</p>
         </div>
@@ -407,11 +410,11 @@
 
       <section class="section container reveal" id="stores">
         <div class="section-title">
-          <h2 data-i18n="stores.title">Popular Store</h2>
-          <a href="#categories" data-i18n="stores.link">View All Stores</a>
+          <h2 data-i18n="stores.title">Popular Stores</h2>
+          <a href="#deals" data-i18n="stores.link">View All Deals</a>
         </div>
         <p class="section-intro" data-i18n="stores.intro">Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.</p>
-        <div class="store-grid">
+        <div class="store-grid" id="popular-store-grid">
           <article class="store-card">
             <div class="store-logo">FC</div>
             <h3>Fortress Clothing</h3>
@@ -466,45 +469,19 @@
         </article>
       </section>
 
-      <section class="section trustpilot-section reveal" id="feedback" aria-labelledby="feedback-title">
+      <section class="section trustpilot-section reveal is-visible" id="feedback" aria-labelledby="feedback-title">
         <div class="container trustpilot-panel">
           <div class="trustpilot-summary">
             <p class="eyebrow" data-i18n="feedback.eyebrow">Trustpilot Feedback</p>
             <h2 id="feedback-title" data-i18n="feedback.title">Product Review Signals from Trustpilot</h2>
-            <p data-i18n="feedback.copy">Review snapshots for featured products, summarized from public Trustpilot pages so visitors can compare customer sentiment before claiming a deal.</p>
+            <p>Only reviews synchronized through the official Trustpilot API are displayed here.</p>
             <div class="rating-row" aria-label="Trustpilot rating preview">
               <span class="stars" aria-hidden="true">★★★★★</span>
               <strong data-i18n="feedback.updated">Source: Trustpilot public review pages</strong>
             </div>
           </div>
-          <div class="feedback-grid">
-            <article class="feedback-card">
-              <div class="feedback-head">
-                <span class="avatar">HG</span>
-                <span class="stars" aria-label="Mixed Trustpilot sentiment">★★★☆☆</span>
-              </div>
-              <h3>HeyGen</h3>
-              <p data-i18n="feedback.heygen">Trustpilot reviewers often mention easy video creation, AI avatars, and voice options, while some users report concerns around product credits and subscriptions.</p>
-              <p class="source-note" data-i18n="feedback.source">Source: Trustpilot</p>
-            </article>
-            <article class="feedback-card">
-              <div class="feedback-head">
-                <span class="avatar teal">WP</span>
-                <span class="stars" aria-label="Low Trustpilot score">★★☆☆☆</span>
-              </div>
-              <h3>WPvivid</h3>
-              <p data-i18n="feedback.wpvivid">WPvivid has a small Trustpilot sample, so the score should be treated carefully. The current public page shows limited review volume and mixed confidence.</p>
-              <p class="source-note" data-i18n="feedback.source">Source: Trustpilot</p>
-            </article>
-            <article class="feedback-card">
-              <div class="feedback-head">
-                <span class="avatar gold">B2</span>
-                <span class="stars" aria-label="Strong Trustpilot sentiment">★★★★★</span>
-              </div>
-              <h3>Barn2 Plugins</h3>
-              <p data-i18n="feedback.barn2">Barn2 receives strong Trustpilot feedback, especially around plugin functionality, responsive support, and help with WooCommerce customization.</p>
-              <p class="source-note" data-i18n="feedback.source">Source: Trustpilot</p>
-            </article>
+          <div class="feedback-grid" id="trustpilot-feedback-grid">
+            <p class="trustpilot-empty">Trustpilot API is not configured yet. No sample or fabricated reviews are shown.</p>
           </div>
         </div>
       </section>
@@ -594,6 +571,6 @@
     </footer>
 
     <div class="toast" role="status" aria-live="polite"></div>
-    <script src="script.js" defer></script>
+    <script src="script.js?v=20260713-14" defer></script>
   </body>
 </html>

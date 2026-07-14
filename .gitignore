@@ -3,6 +3,8 @@ node_modules/
 .venv/
 .agents/
 .codex/
+data/admin-users.json
+data/project-uploads/
 *.log
 server.log
 server.err.log

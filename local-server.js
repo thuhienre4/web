@@ -10,6 +10,11 @@ const port = Number(process.env.PORT || 3000);
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123456";
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 const offersFile = path.join(dataDir, "offers.json");
+const projectsFile = path.join(dataDir, "projects.json");
+const trustpilotReviewsFile = path.join(dataDir, "trustpilot-reviews.json");
+const projectUploadsDir = path.join(dataDir, "project-uploads");
+const siteSettingsFile = path.join(dataDir, "site-settings.json");
+const adminUsersFile = path.join(dataDir, "admin-users.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
@@ -30,12 +35,13 @@ const types = {
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
+  ".avif": "image/avif",
   ".ico": "image/x-icon",
 };
 
 function readJsonArrayFile(filePath, fallback = []) {
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
     return Array.isArray(parsed) ? parsed : fallback;
   } catch {
     return fallback;
@@ -2728,9 +2734,40 @@ const starterOffers = readJsonArrayFile(
   readJsonArrayFile(seedOffersFile, readJsonArrayFile(bundledOffersFile, embeddedStarterOffers))
 );
 const starterAdminEmails = ["admin@alocoupon.local"];
+const defaultSiteSettings = {
+  siteName: "AloCoupon",
+  slogan: "Your Trusted Marketplace for Coupons & Deals",
+  homeTitle: "Codes that actually work.",
+  homeDescription: "Other sites guess. We verify. Every offer is reviewed, organized, and published from real partner data before you see it.",
+  logoData: "",
+  faviconData: "",
+  allowIndex: true,
+  ampHomepage: false,
+  authorName: "AloCoupon Editorial Team",
+  authorAvatarData: "",
+  facebook: "",
+  instagram: "",
+  youtube: "",
+  tiktok: "",
+  x: "",
+  seoTitle: "AloCoupon - Verified Coupon Codes & Deals",
+  seoDescription: "Verified coupon codes, promotions and deals from trusted partner stores.",
+  seoKeywords: "coupon codes, deals, promotions",
+  couponDescription: "Don't miss out! Browse verified coupons for {{store_name}} and save before checkout.",
+  howToApply: "Choose an offer, copy the coupon code, visit the store and apply the code at checkout.",
+  widgetTitle: "Get deals by email",
+  widgetContent: "Subscribe to receive verified coupons and new deals.",
+  menuItems: "Stores|#stores\nDeals|#deals\nCategories|#categories\nBlog|#feature-post\nFAQ|#faq",
+  feedbackEmail: "",
+  feedbackEnabled: true,
+  adsHeader: "",
+  adsSidebar: "",
+  adsFooter: "",
+};
 
 function ensureDataFile() {
   fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(projectUploadsDir, { recursive: true });
   if (!fs.existsSync(offersFile)) {
     fs.writeFileSync(offersFile, JSON.stringify(starterOffers, null, 2));
   } else if (starterOffers.length) {
@@ -2742,19 +2779,148 @@ function ensureDataFile() {
   if (!fs.existsSync(adminEmailsFile)) {
     fs.writeFileSync(adminEmailsFile, JSON.stringify(starterAdminEmails, null, 2));
   }
+  if (!fs.existsSync(projectsFile)) {
+    fs.writeFileSync(projectsFile, "[]");
+  }
+  if (!fs.existsSync(trustpilotReviewsFile)) {
+    fs.writeFileSync(trustpilotReviewsFile, "[]");
+  }
+  if (!fs.existsSync(siteSettingsFile)) {
+    fs.writeFileSync(siteSettingsFile, JSON.stringify(defaultSiteSettings, null, 2));
+  }
+  if (!fs.existsSync(adminUsersFile)) {
+    const initialUsers = readJsonArrayFile(adminEmailsFile, starterAdminEmails).map((email, index) => ({
+      id: `user_${index + 1}`,
+      name: index === 0 ? "Administrator" : String(email).split("@")[0],
+      username: String(email).split("@")[0],
+      email: normalizeEmail(email),
+      phone: "",
+      role: index === 0 ? "Administrator" : "Editor",
+      status: "active",
+      createdAt: new Date().toISOString(),
+    }));
+    fs.writeFileSync(adminUsersFile, JSON.stringify(initialUsers, null, 2));
+  }
+}
+
+function readSiteSettings() {
+  ensureDataFile();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(siteSettingsFile, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...defaultSiteSettings, ...parsed } : { ...defaultSiteSettings };
+  } catch {
+    return { ...defaultSiteSettings };
+  }
+}
+
+function sanitizeSiteSettings(input) {
+  const current = readSiteSettings();
+  const next = { ...current };
+  Object.keys(defaultSiteSettings).forEach((key) => {
+    if (!(key in input)) return;
+    if (typeof defaultSiteSettings[key] === "boolean") next[key] = Boolean(input[key]);
+    else next[key] = String(input[key] ?? "").slice(0, key.endsWith("Data") ? 900000 : 20000);
+  });
+  ["logoData", "faviconData", "authorAvatarData"].forEach((key) => {
+    if (next[key] && !/^data:image\/(?:png|jpeg|webp|gif|svg\+xml);base64,/i.test(next[key])) next[key] = "";
+  });
+  return next;
+}
+
+function writeSiteSettings(settings) {
+  ensureDataFile();
+  fs.writeFileSync(siteSettingsFile, JSON.stringify(settings, null, 2));
+}
+
+function readAdminUsers() {
+  ensureDataFile();
+  return readJsonArrayFile(adminUsersFile).map((user) => ({ ...user, email: normalizeEmail(user.email) })).filter((user) => user.email);
+}
+
+function writeAdminUsers(users) {
+  ensureDataFile();
+  fs.writeFileSync(adminUsersFile, JSON.stringify(users, null, 2));
+  fs.writeFileSync(adminEmailsFile, JSON.stringify(users.filter((user) => user.status !== "disabled").map((user) => normalizeEmail(user.email)), null, 2));
+}
+
+function readTrustpilotReviews() {
+  ensureDataFile();
+  return readJsonArrayFile(trustpilotReviewsFile);
+}
+
+function readProjects() {
+  ensureDataFile();
+  return readJsonArrayFile(projectsFile)
+    .map((project) => ({ ...project, size: Number(project.size || 0) }))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+function writeProjects(projects) {
+  ensureDataFile();
+  fs.writeFileSync(projectsFile, JSON.stringify(projects, null, 2));
 }
 
 function readOffers() {
   ensureDataFile();
   try {
-    const parsed = JSON.parse(fs.readFileSync(offersFile, "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(offersFile, "utf8").replace(/^\uFEFF/, ""));
     if (Array.isArray(parsed) && parsed.length) {
-      return normalizeOffers(parsed);
+      return applyExtractedBrandLogos(normalizeOffers(parsed));
     }
-    return normalizeOffers(starterOffers);
+    return applyExtractedBrandLogos(normalizeOffers(starterOffers));
   } catch {
-    return normalizeOffers(starterOffers);
+    return applyExtractedBrandLogos(normalizeOffers(starterOffers));
   }
+}
+
+function readBrandLogoManifest() {
+  try {
+    const manifestFile = path.join(root, "assets", "brand-logos", "manifest.json");
+    const parsed = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readBrandLandingManifest() {
+  try {
+    const manifestFile = path.join(root, "assets", "brand-landings", "manifest.json");
+    const parsed = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readProductImageManifest() {
+  try {
+    const manifestFile = path.join(root, "assets", "product-images", "manifest.json");
+    const parsed = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getOfferLogoHost(offer) {
+  try {
+    return new URL(offer.link).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return String(offer.brand || "").trim().toLowerCase().replace(/^www\./, "");
+  }
+}
+
+function applyExtractedBrandLogos(offers) {
+  const manifest = readBrandLogoManifest();
+  const landingManifest = readBrandLandingManifest();
+  const productManifest = readProductImageManifest();
+  return offers.map((offer) => ({
+    ...offer,
+    logo: offer.logo || manifest[getOfferLogoHost(offer)] || "",
+    landingImage: landingManifest[getOfferLogoHost(offer)] || "",
+    productImage: productManifest[offer.id] || "",
+  }));
 }
 
 function writeOffers(offers) {
@@ -2920,12 +3086,12 @@ function getOfferSummary(offer) {
   return review && review !== title && review !== displayTitle ? review : title || review || displayTitle;
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 1_500_000) {
   return new Promise((resolve, reject) => {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 1_500_000) {
+      if (body.length > maxBytes) {
         req.destroy();
         reject(new Error("Request body too large"));
       }
@@ -2982,6 +3148,55 @@ function normalizeOfferDate(value, fallbackIndex = 0) {
 
 function createOfferId() {
   return `offer_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+const allowedProjectExtensions = new Set([
+  ".zip", ".rar", ".7z", ".tar", ".gz", ".js", ".jsx", ".ts", ".tsx",
+  ".html", ".css", ".json", ".md", ".txt", ".py", ".java", ".php", ".sql",
+  ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".pdf",
+]);
+
+function createProjectId() {
+  return `project_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function sanitizeProjectUpload(input) {
+  const name = String(input.name || "").trim();
+  const description = String(input.description || "").trim();
+  const version = String(input.version || "").trim();
+  const projectType = String(input.projectType || "other").trim().toLowerCase();
+  const originalFileName = path.basename(String(input.fileName || "").trim());
+  const extension = path.extname(originalFileName).toLowerCase();
+  const match = String(input.fileData || "").match(/^data:([^;,]+)?;base64,([a-z0-9+/]+={0,2})$/i);
+
+  if (!name) throw new Error("Project name is required.");
+  if (!description) throw new Error("Project description is required.");
+  if (!originalFileName || !allowedProjectExtensions.has(extension)) {
+    throw new Error("Choose a supported source-code or archive file.");
+  }
+  if (!match) throw new Error("The selected file could not be read.");
+
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > 8 * 1024 * 1024) {
+    throw new Error("Project file must be 8 MB or smaller.");
+  }
+
+  const id = createProjectId();
+  const storedFileName = `${id}${extension}`;
+  return {
+    project: {
+      id,
+      name: name.slice(0, 120),
+      description: description.slice(0, 2000),
+      version: version.slice(0, 40),
+      projectType: ["website", "application", "template", "library", "image", "document", "other"].includes(projectType) ? projectType : "other",
+      fileName: originalFileName.slice(0, 180),
+      storedFileName,
+      size: buffer.length,
+      createdAt: new Date().toISOString(),
+    },
+    buffer,
+  };
 }
 
 function normalizeOfferId(offer, fallbackIndex = 0) {
@@ -3270,6 +3485,7 @@ function normalizeOffers(offers) {
 function sanitizeBrandLogo(value) {
   const logo = String(value || "").trim();
   if (!logo) return "";
+  if (/^\/assets\/brand-logos\/[a-z0-9._-]+$/i.test(logo)) return logo;
 
   const match = logo.match(/^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i);
   if (!match) throw new Error("Logo must be a PNG, JPG, WEBP, or GIF image.");
@@ -3294,6 +3510,10 @@ function sanitizeOffer(input) {
     expiry: String(input.expiry || "").trim(),
     review: String(input.review || "").trim(),
     logo: sanitizeBrandLogo(input.logo),
+    slug: slugify(input.slug || input.title),
+    order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
+    visible: input.visible !== false && String(input.visible).toLowerCase() !== "false",
+    metaTitle: String(input.metaTitle || input.title || "").trim().slice(0, 180),
     createdAt: new Date().toISOString(),
   };
 
@@ -3306,6 +3526,11 @@ function sanitizeOffer(input) {
     throw new Error("Affiliate link must use http or https.");
   }
   offer.link = url.href;
+
+  if (!offer.logo) {
+    const extractedLogo = readBrandLogoManifest()[getOfferLogoHost(offer)];
+    if (extractedLogo) offer.logo = extractedLogo;
+  }
 
   for (const field of ["brand", "title", "discount", "category", "review"]) {
     if (!offer[field]) {
@@ -3384,14 +3609,242 @@ function adminPage(adminEmail = "") {
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body class="admin-mode">
-  <main>
-    <section class="section admin-section" style="display:block;">
+  <div class="admin-cms-shell">
+    <aside class="cms-sidebar" id="cms-sidebar">
+      <a class="cms-brand" href="#categories"><span class="cms-brand-mark">A</span><strong>AloCMS</strong></a>
+      <p class="cms-menu-label">QUẢN LÝ NỘI DUNG</p>
+      <nav class="cms-nav" aria-label="Admin navigation">
+        <button class="cms-nav-item is-active" type="button" data-admin-target="categories"><span>▦</span> Quản lý danh mục</button>
+        <button class="cms-nav-item cms-parent-item" id="coupon-menu-toggle" type="button" aria-expanded="true"><span>◆</span> Quản lý coupon <b>⌄</b></button>
+        <div class="cms-subnav" id="coupon-subnav">
+          <button type="button" data-admin-target="store-list"><span>›</span> Store</button>
+          <button type="button" data-admin-target="offer-list"><span>›</span> Offer</button>
+          <button type="button" data-admin-target="deal-list"><span>›</span> Deal</button>
+          <button type="button" data-admin-target="bulk-offer-import"><span>⇧</span> Upload Deal & Coupon</button>
+        </div>
+        <button class="cms-nav-item" type="button" data-admin-target="news"><span>▤</span> Quản lý tin tức</button>
+        <button class="cms-nav-item" type="button" data-admin-target="content"><span>□</span> Trang nội dung</button>
+        <button class="cms-nav-item" type="button" data-admin-target="widgets"><span>✦</span> Widget</button>
+        <button class="cms-nav-item" type="button" data-admin-target="menu"><span>☰</span> Menu</button>
+        <button class="cms-nav-item" type="button" data-admin-target="projects"><span>⇧</span> Code & dự án</button>
+      </nav>
+      <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
+      <nav class="cms-nav cms-system-nav" aria-label="System navigation">
+        <button class="cms-nav-item" type="button" data-admin-target="projects"><span>▣</span> Quản lý file</button>
+        <button class="cms-nav-item" type="button" data-admin-target="users"><span>♙</span> Quản lý user</button>
+        <button class="cms-nav-item cms-parent-item" id="settings-menu-toggle" type="button" aria-expanded="true"><span>⚙</span> Quản lý cấu hình <b>⌄</b></button>
+        <div class="cms-subnav" id="settings-subnav">
+          <button type="button" data-admin-target="settings-general"><span>›</span> Cấu hình chung</button>
+          <button type="button" data-admin-target="settings-author"><span>›</span> Cấu hình tác giả</button>
+          <button type="button" data-admin-target="settings-feedback"><span>›</span> Cấu hình phản hồi</button>
+          <button type="button" data-admin-target="settings-social"><span>›</span> Cấu hình mạng xã hội</button>
+          <button type="button" data-admin-target="settings-seo"><span>›</span> Cấu hình SEO</button>
+          <button type="button" data-admin-target="settings-content"><span>›</span> Cấu hình nội dung</button>
+          <button type="button" data-admin-target="settings-ads"><span>›</span> Cấu hình Ads</button>
+        </div>
+      </nav>
+      <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
+      <div class="cms-user-card"><span class="cms-user-avatar">${escapeHtml(adminEmail).slice(0, 1).toUpperCase()}</span><span><strong>Administrator</strong><small>${escapeHtml(adminEmail)}</small></span></div>
+    </aside>
+    <div class="cms-workspace">
+      <header class="cms-topbar">
+        <button class="cms-menu-toggle" id="cms-menu-toggle" type="button" aria-label="Toggle menu">☰</button>
+        <nav><button type="button" data-admin-target="categories">Home</button><button type="button" data-admin-target="news">Tin tức</button></nav>
+        <div class="cms-top-actions"><a href="/" target="_blank">◉ Xem website</a><span>🔔</span><button id="top-logout-btn" type="button">Đăng xuất</button></div>
+      </header>
+      <main class="cms-main">
+        <section class="cms-panel is-active" data-admin-panel="categories">
+          <div class="cms-page-heading"><div><h1>Quản lý danh mục</h1><p>Quản lý cấu trúc danh mục bài viết và nội dung hiển thị trên website.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Danh mục</strong></div></div>
+          <div class="category-toolbar">
+            <div class="category-search"><input id="category-search" type="search" placeholder="Tìm kiếm" /><select id="category-kind"><option value="all">Tất cả</option><option value="Posts">Posts</option><option value="Coupon">Coupon</option></select><button class="cms-btn cms-btn-primary" id="category-search-btn" type="button">Tìm kiếm</button></div>
+            <div class="category-actions"><button class="cms-btn cms-btn-primary" id="save-categories-btn" type="button">▣ Cập nhật</button><button class="cms-btn cms-btn-info" id="export-categories-btn" type="button">▧ Export</button><button class="cms-btn cms-btn-info" id="add-category-btn" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-danger" id="delete-categories-btn" type="button">▰ Xóa <span id="selected-category-count">0</span></button><button class="cms-btn cms-btn-dark" id="reset-categories-btn" type="button">↶ Cancel</button></div>
+          </div>
+          <div class="category-table-wrap">
+            <table class="category-table">
+              <thead><tr><th class="row-number"></th><th class="check-cell"><input id="select-all-categories" type="checkbox" /></th><th>Name</th><th>Hiển thị</th><th>Hiển thị trang chủ</th><th>STT</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead>
+              <tbody id="category-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="cms-panel" data-admin-panel="news" hidden>
+          <div class="cms-page-heading"><div><h1>Quản lý tin tức</h1><p>Tạo và quản lý các bài viết, tin tức trên AloCoupon.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Tin tức</strong></div></div>
+          <div class="cms-placeholder"><span>▤</span><h2>Khu vực quản lý tin tức</h2><p>Nội dung bài viết sẽ được quản lý tại đây.</p><button class="cms-btn cms-btn-info" type="button">⊕ Thêm bài viết</button></div>
+        </section>
+
+        <section class="cms-panel" data-admin-panel="content" hidden>
+          <div class="cms-page-heading"><div><h1>Trang nội dung</h1><p>Quản lý các trang giới thiệu, chính sách và nội dung tĩnh.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Trang nội dung</strong></div></div>
+          <div class="cms-placeholder"><span>□</span><h2>Quản lý trang nội dung</h2><p>Các trang tĩnh của website sẽ hiển thị tại đây.</p><button class="cms-btn cms-btn-info" type="button">⊕ Thêm trang mới</button></div>
+        </section>
+
+        <section class="cms-panel coupon-manager-panel" data-admin-panel="store-list" hidden>
+          <div class="cms-page-heading"><div><h1>Quản lý store</h1><p>Danh sách cửa hàng được tổng hợp từ dữ liệu coupon đã upload.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Store</strong></div></div>
+          <div class="category-toolbar"><div class="category-search"><input id="store-list-search" type="search" placeholder="Tìm kiếm" /><select id="store-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="store" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" type="button">▣ Cập nhật</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-dark" data-admin-target="categories" type="button">↶ Cancel</button></div></div>
+          <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="store" /></th><th>Name</th><th>Logo</th><th>Hiển thị</th><th>Số offer</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead><tbody id="store-list-body"></tbody></table></div>
+        </section>
+
+        <section class="cms-panel coupon-manager-panel" data-admin-panel="offer-list" hidden>
+          <div class="cms-page-heading"><div><h1>Quản lý offer</h1><p>Danh sách coupon code và promotion đã upload.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Offer</strong></div></div>
+          <div class="category-toolbar"><div class="category-search"><input id="offer-list-search" type="search" placeholder="Tìm kiếm" /><select id="offer-list-store"><option value="all">Tất cả store</option></select><select id="offer-list-status"><option value="all">Tất cả trạng thái</option><option value="code">Coupon Code</option><option value="promotion">Promotion</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="offer" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" id="update-offer-list-btn" type="button">▣ Cập nhật</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-danger batch-delete-offers-btn" data-list-type="offer" type="button">▰ Xóa <span id="selected-offer-count">0</span></button><button class="cms-btn cms-btn-dark" data-admin-target="categories" type="button">↶ Cancel</button></div></div>
+          <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="offer" /></th><th>Name</th><th>Duyệt</th><th>Verified</th><th>Store</th><th>STT</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead><tbody id="offer-list-body"></tbody></table></div>
+        </section>
+
+        <section class="cms-panel coupon-manager-panel" data-admin-panel="bulk-offer-import" hidden>
+          <div class="cms-page-heading"><div><h1>Upload hàng loạt Deal & Coupon</h1><p>Chọn nhiều file CSV hoặc JSON từ nhiều dự án và đăng dữ liệu thật lên website trong một lần.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Upload Deal & Coupon</strong></div></div>
+          <details class="bulk-deal-import" open>
+            <summary>⇧ Chọn file Deal / Coupon (CSV / JSON)</summary>
+            <form id="bulk-deal-import-form">
+              <label>Các file dữ liệu <input id="bulk-deal-file" type="file" accept=".csv,.json,text/csv,application/json" multiple required /></label>
+              <small>Bạn có thể giữ Ctrl/Shift để chọn nhiều file. Tổng cộng tối đa 500 dòng mỗi lần.</small>
+              <label>Logo chung (không bắt buộc) <input id="bulk-deal-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
+              <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu Deal & Coupon</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="submit">Upload tất cả</button></div>
+              <p id="bulk-deal-result">Cột type dùng “deal” hoặc “coupon”. Nếu có code, hệ thống tự nhận là Coupon.</p>
+            </form>
+          </details>
+        </section>
+
+        <section class="cms-panel coupon-manager-panel" data-admin-panel="deal-list" hidden>
+          <div class="cms-page-heading"><div><h1>Quản lý deal</h1><p>Đăng và quản lý deal hiển thị trên website.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Deal</strong></div></div>
+          <div class="category-toolbar"><div class="category-search"><input id="deal-list-search" type="search" placeholder="Tìm kiếm" /><select id="deal-list-category"><option value="all">Tất cả danh mục</option></select><select id="deal-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="deal" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" id="update-deal-list-btn" type="button">▣ Cập nhật</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="deal" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-danger batch-delete-offers-btn" data-list-type="deal" type="button">▰ Xóa <span id="selected-deal-count">0</span></button><button class="cms-btn cms-btn-dark" data-admin-target="categories" type="button">↶ Cancel</button></div></div>
+          <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="deal" /></th><th>Name</th><th>Image</th><th>Hiển thị</th><th>Danh mục</th><th>STT</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead><tbody id="deal-list-body"></tbody></table></div>
+        </section>
+
+        <section class="cms-panel cms-create-panel" data-admin-panel="deal-create" hidden>
+          <div class="cms-page-heading cms-create-heading">
+            <div><h1>Thêm mới deal</h1></div>
+            <div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><button data-admin-target="deal-list">Deal</button><span>/</span><strong>Thêm mới deal</strong></div>
+          </div>
+          <div class="cms-create-actions"><button class="cms-btn cms-btn-primary" type="submit" form="deal-create-form">▣ Cập nhật</button><button class="cms-btn cms-btn-dark" data-admin-target="deal-list" type="button">↶ Cancel</button></div>
+          <form class="cms-editor-form" id="deal-create-form">
+            <div class="cms-field-row"><label for="deal-create-title">Tên deal</label><input id="deal-create-title" name="title" type="text" placeholder="Tên deal" required /></div>
+            <div class="cms-field-row"><label for="deal-create-slug">Slug</label><input id="deal-create-slug" name="slug" type="text" placeholder="Slug" /></div>
+            <div class="cms-field-row"><label for="deal-create-order">Sắp xếp</label><input id="deal-create-order" name="order" type="number" value="9999999" /></div>
+            <div class="cms-field-row"><label for="deal-create-brand">Store / Thương hiệu</label><input id="deal-create-brand" name="brand" type="text" placeholder="Tên store hoặc thương hiệu" required /></div>
+            <div class="cms-field-row"><label for="deal-create-category">Danh mục</label><select id="deal-create-category" name="category" required><option value="Other">Other</option></select></div>
+            <div class="cms-field-row"><label for="deal-create-image">Image</label><div class="cms-file-picker"><label class="cms-file-button" for="deal-create-image">▧ Chọn file</label><input id="deal-create-image" name="logoFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" required /><span id="deal-create-file-name">Chưa chọn tệp</span></div></div>
+            <div class="cms-field-row cms-preview-row" id="deal-create-preview-row" hidden><span></span><div class="cms-deal-image-preview"><img id="deal-create-preview" alt="Deal image preview" /><button id="deal-create-remove-image" type="button">×</button></div></div>
+            <div class="cms-field-row"><label>Hiển thị</label><label class="cms-switch"><input name="visible" type="checkbox" checked /><span>YES</span></label></div>
+            <div class="cms-field-row cms-description-row"><label for="deal-create-description">Mô tả</label><div class="cms-rich-editor"><div class="cms-editor-toolbar"><button type="button">Source</button><button type="button">▣</button><button type="button">□</button><button type="button">⌕</button><button type="button">▤</button><span></span><button type="button"><b>B</b></button><button type="button"><i>I</i></button><button type="button"><u>U</u></button><button type="button">S</button><button type="button">x₂</button><button type="button">x²</button><button type="button">☷</button><button type="button">☰</button><button type="button">↶</button><button type="button">↷</button><select><option>Styles</option></select><select><option>Format</option></select><select><option>Font</option></select><select><option>Size</option></select></div><textarea id="deal-create-description" name="review" required></textarea></div></div>
+            <div class="cms-field-row"><label for="deal-create-discount">Giảm giá</label><input id="deal-create-discount" name="discount" type="text" placeholder="Ví dụ: 20% Off" required /></div>
+            <div class="cms-field-row"><label for="deal-create-link">Affiliate link</label><input id="deal-create-link" name="link" type="url" placeholder="https://..." required /></div>
+            <div class="cms-field-row"><label for="deal-create-expiry">Hạn sử dụng</label><input id="deal-create-expiry" name="expiry" type="text" placeholder="Không bắt buộc" /></div>
+            <div class="cms-field-row"><label for="deal-create-meta-title">Meta title</label><input id="deal-create-meta-title" name="metaTitle" type="text" placeholder="Meta title" /></div>
+          </form>
+        </section>
+
+    <section class="cms-panel" data-admin-panel="widgets" hidden>
+      <div class="cms-page-heading"><div><h1>Widget</h1><p>Quản lý nội dung widget hiển thị trên website.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Tiêu đề widget</label><input name="widgetTitle" type="text" /></div>
+        <div class="cms-field-row cms-description-row"><label>Nội dung widget</label><textarea name="widgetContent" rows="10"></textarea></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="menu" hidden>
+      <div class="cms-page-heading"><div><h1>Menu</h1><p>Mỗi dòng gồm tên menu và liên kết, phân cách bằng ký tự |.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row cms-description-row"><label>Danh sách menu</label><textarea name="menuItems" rows="14" placeholder="Deals|#deals"></textarea></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="users" hidden>
+      <div class="cms-page-heading"><div><h1>Quản lý user</h1><p>Quản lý tài khoản được phép đăng nhập trang quản trị.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>User</strong></div></div>
+      <div class="admin-user-toolbar">
+        <form id="admin-user-form" class="cms-inline-form">
+          <input name="name" type="text" placeholder="Họ và tên" required />
+          <input name="username" type="text" placeholder="Tên đăng nhập" />
+          <input name="email" type="email" placeholder="Email" required />
+          <input name="phone" type="text" placeholder="Số điện thoại" />
+          <select name="role"><option>Administrator</option><option selected>Editor</option><option>Viewer</option></select>
+          <button class="cms-btn cms-btn-info" type="submit">⊕ Thêm mới</button>
+        </form>
+      </div>
+      <div class="category-table-wrap"><table class="category-table"><thead><tr><th>Họ và tên</th><th>Tên đăng nhập</th><th>Email</th><th>Số điện thoại</th><th>Ngày đăng ký</th><th>Trạng thái</th><th></th></tr></thead><tbody id="admin-user-table-body"></tbody></table></div>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-general" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình chung</h1><p>Logo, favicon và nội dung chính của website.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Cấu hình chung</strong></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Tên site</label><input name="siteName" type="text" required /></div>
+        <div class="cms-field-row"><label>Logo</label><div class="cms-setting-upload"><input type="file" accept="image/*" data-setting-file="logoData" /><img data-setting-preview="logoData" alt="Logo preview" hidden /></div></div>
+        <div class="cms-field-row"><label>Favicon</label><div class="cms-setting-upload"><input type="file" accept="image/*" data-setting-file="faviconData" /><img data-setting-preview="faviconData" alt="Favicon preview" hidden /></div></div>
+        <div class="cms-field-row"><label>Cho phép index</label><label class="cms-switch"><input name="allowIndex" type="checkbox" /><span>YES</span></label></div>
+        <div class="cms-field-row"><label>AMP trang chủ</label><label class="cms-switch"><input name="ampHomepage" type="checkbox" /><span>YES</span></label></div>
+        <div class="cms-field-row"><label>Slogan</label><input name="slogan" type="text" /></div>
+        <div class="cms-field-row"><label>Thông báo đầu trang 1</label><input name="homeTitle" type="text" /></div>
+        <div class="cms-field-row"><label>Thông báo đầu trang 2</label><textarea name="homeDescription" rows="3"></textarea></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-author" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình tác giả</h1><p>Thông tin đại diện của tác giả website.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Name</label><input name="authorName" type="text" /></div>
+        <div class="cms-field-row"><label>Avatar</label><div class="cms-setting-upload"><input type="file" accept="image/*" data-setting-file="authorAvatarData" /><img data-setting-preview="authorAvatarData" alt="Author preview" hidden /></div></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-feedback" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình phản hồi</h1><p>Thiết lập địa chỉ nhận phản hồi từ người dùng.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Email nhận phản hồi</label><input name="feedbackEmail" type="email" /></div>
+        <div class="cms-field-row"><label>Bật form phản hồi</label><label class="cms-switch"><input name="feedbackEnabled" type="checkbox" /><span>YES</span></label></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-social" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình mạng xã hội</h1><p>Liên kết các kênh truyền thông chính thức.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Facebook</label><input name="facebook" type="url" placeholder="https://facebook.com/..." /></div>
+        <div class="cms-field-row"><label>Instagram</label><input name="instagram" type="url" placeholder="https://instagram.com/..." /></div>
+        <div class="cms-field-row"><label>YouTube</label><input name="youtube" type="url" placeholder="https://youtube.com/..." /></div>
+        <div class="cms-field-row"><label>TikTok</label><input name="tiktok" type="url" placeholder="https://tiktok.com/@..." /></div>
+        <div class="cms-field-row"><label>X / Twitter</label><input name="x" type="url" placeholder="https://x.com/..." /></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-seo" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình SEO</h1><p>Thiết lập tiêu đề và mô tả tìm kiếm.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row"><label>Meta title</label><input name="seoTitle" type="text" maxlength="160" /></div>
+        <div class="cms-field-row"><label>Meta description</label><textarea name="seoDescription" rows="5" maxlength="500"></textarea></div>
+        <div class="cms-field-row"><label>Keywords</label><input name="seoKeywords" type="text" /></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-content" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình nội dung</h1><p>Mẫu mô tả coupon và hướng dẫn áp dụng mã.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row cms-description-row"><label>Mô tả coupons</label><textarea name="couponDescription" rows="14" placeholder="Có thể dùng {{store_name}} để chèn tên Store"></textarea></div>
+        <div class="cms-field-row cms-description-row"><label>How to apply</label><textarea name="howToApply" rows="12"></textarea></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="cms-panel" data-admin-panel="settings-ads" hidden>
+      <div class="cms-page-heading"><div><h1>Cấu hình Ads</h1><p>Quản lý mã quảng cáo theo từng vị trí.</p></div></div>
+      <form class="cms-settings-form" data-settings-form>
+        <div class="cms-field-row cms-description-row"><label>Header Ads</label><textarea name="adsHeader" rows="6" placeholder="Mã quảng cáo đầu trang"></textarea></div>
+        <div class="cms-field-row cms-description-row"><label>Sidebar Ads</label><textarea name="adsSidebar" rows="6" placeholder="Mã quảng cáo sidebar"></textarea></div>
+        <div class="cms-field-row cms-description-row"><label>Footer Ads</label><textarea name="adsFooter" rows="6" placeholder="Mã quảng cáo cuối trang"></textarea></div>
+        <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
+      </form>
+    </section>
+
+    <section class="section admin-section cms-panel" data-admin-panel="offers" hidden>
       <div class="container admin-layout">
         <div class="admin-copy">
           <p class="eyebrow">Secure affiliate workspace</p>
           <h2>Admin Deal & Coupon Upload</h2>
           <p>This page is protected by a server session. Only admins can publish product promotions into Deals Of Today and the public deal search.</p>
-          <div class="admin-stats"><span><strong id="offer-count">0</strong> Published offers</span><span>Signed in: ${escapeHtml(adminEmail)}</span></div>
+          <div class="admin-stats"><span><strong id="offer-count">0</strong> Published offers</span><span><strong id="project-count">0</strong> Project files</span><span class="admin-session-label">Signed in: ${escapeHtml(adminEmail)}</span></div>
           <p><a class="button button-outline" href="/" style="color:#fff;border-color:rgba(255,255,255,.36);">View Public Site</a></p>
         </div>
         <form class="admin-form" id="secure-offer-form">
@@ -3436,11 +3889,44 @@ function adminPage(adminEmail = "") {
         </form>
       </div>
     </section>
-    <section class="section container">
+    <section class="section container admin-project-section cms-panel" data-admin-panel="projects" hidden>
+      <div class="section-title admin-section-heading">
+        <div><p class="eyebrow">Quản lý file</p><h2>Upload hàng loạt dự án & tệp</h2><p>Chọn nhiều dự án, source code, ảnh hoặc file nén để upload trong cùng một lần.</p></div>
+        <span class="security-badge">Admin only</span>
+      </div>
+      <div class="project-upload-layout">
+        <form class="admin-form project-upload-form" id="project-upload-form">
+          <label>Project name / batch prefix <input name="name" type="text" placeholder="Để trống để dùng tên từng file" maxlength="120" /></label>
+          <div class="form-row">
+            <label>Project type
+              <select name="projectType"><option value="website">Website</option><option value="application">Application</option><option value="template">Template</option><option value="library">Library</option><option value="image">Image / Logo</option><option value="document">Document</option><option value="other">Other</option></select>
+            </label>
+            <label>Version <input name="version" type="text" placeholder="v1.0.0 (optional)" maxlength="40" /></label>
+          </div>
+          <label>Project description <textarea name="description" rows="5" maxlength="2000" placeholder="Describe what the project does, setup notes, technology, and important usage details..." required></textarea></label>
+          <label class="project-dropzone" id="project-dropzone">
+            <input name="projectFile" type="file" accept=".zip,.rar,.7z,.tar,.gz,.js,.jsx,.ts,.tsx,.html,.css,.json,.md,.txt,.py,.java,.php,.sql,.png,.jpg,.jpeg,.webp,.gif,.svg,.pdf" multiple required />
+            <span class="upload-icon" aria-hidden="true">&#8593;</span>
+            <strong>Chọn nhiều file hoặc kéo cả lô vào đây</strong>
+            <span>ZIP, RAR, 7Z, source code or text file — maximum 8 MB</span>
+          </label>
+          <div class="selected-project-file" id="selected-project-file" hidden>
+            <span class="file-type-badge" id="project-file-type">ZIP</span>
+            <span><strong id="project-file-name"></strong><small id="project-file-size"></small></span>
+            <button class="file-remove-btn" id="remove-project-file" type="button" aria-label="Remove selected file">&times;</button>
+          </div>
+          <button class="button button-primary project-submit-btn" type="submit" id="upload-project-btn">Upload Projects</button>
+        </form>
+        <div class="project-library" id="project-library" aria-live="polite"></div>
+      </div>
+    </section>
+    <section class="section container cms-panel" data-admin-panel="offers" hidden>
       <div class="section-title"><h2>Published Partner Reviews & Coupons</h2></div>
       <div class="admin-offer-grid" id="admin-offer-list"></div>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
   <div class="toast" role="status" aria-live="polite"></div>
   <script>
     const form = document.querySelector("#secure-offer-form");
@@ -3453,14 +3939,478 @@ function adminPage(adminEmail = "") {
     const logoPreview = document.querySelector("#logo-preview");
     const logoPreviewImage = logoPreview.querySelector("img");
     const removeLogoButton = document.querySelector("#remove-logo-btn");
+    const projectForm = document.querySelector("#project-upload-form");
+    const projectInput = projectForm.elements.projectFile;
+    const projectDropzone = document.querySelector("#project-dropzone");
+    const projectLibrary = document.querySelector("#project-library");
+    const projectCount = document.querySelector("#project-count");
+    const selectedProjectFile = document.querySelector("#selected-project-file");
+    const projectFileName = document.querySelector("#project-file-name");
+    const projectFileSize = document.querySelector("#project-file-size");
+    const projectFileType = document.querySelector("#project-file-type");
+    const uploadProjectButton = document.querySelector("#upload-project-btn");
+    const cmsSidebar = document.querySelector("#cms-sidebar");
+    const categoryTableBody = document.querySelector("#category-table-body");
+    const categorySearchInput = document.querySelector("#category-search");
+    const categoryKindSelect = document.querySelector("#category-kind");
+    const storeListBody = document.querySelector("#store-list-body");
+    const offerListBody = document.querySelector("#offer-list-body");
+    const dealListBody = document.querySelector("#deal-list-body");
+    const bulkDealImportForm = document.querySelector("#bulk-deal-import-form");
+    const bulkDealFileInput = document.querySelector("#bulk-deal-file");
+    const bulkDealLogoInput = document.querySelector("#bulk-deal-logo");
+    const bulkDealResult = document.querySelector("#bulk-deal-result");
+    const dealCreateForm = document.querySelector("#deal-create-form");
+    const dealCreateImageInput = document.querySelector("#deal-create-image");
+    const dealCreatePreviewRow = document.querySelector("#deal-create-preview-row");
+    const dealCreatePreview = document.querySelector("#deal-create-preview");
+    const dealCreateFileName = document.querySelector("#deal-create-file-name");
+    const adminUserForm = document.querySelector("#admin-user-form");
+    const adminUserTableBody = document.querySelector("#admin-user-table-body");
+    const settingsForms = document.querySelectorAll("[data-settings-form]");
+    const categoryStorageKey = "alocoupon_admin_category_preferences_v2";
     let currentOffers = [];
     let currentLogo = "";
+    let currentProjectFiles = [];
+    let currentDealLogo = "";
+    let currentSettings = {};
+    let categoryPreferences = (() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(categoryStorageKey));
+        return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+      } catch {
+        return {};
+      }
+    })();
+    let adminCategories = [];
 
     function showToast(message) {
       toast.textContent = message;
       toast.classList.add("show");
       setTimeout(() => toast.classList.remove("show"), 2400);
     }
+
+    function openAdminPanel(target) {
+      document.querySelectorAll("[data-admin-panel]").forEach((panel) => {
+        const active = panel.dataset.adminPanel === target;
+        panel.hidden = !active;
+        panel.classList.toggle("is-active", active);
+      });
+      document.querySelectorAll(".cms-nav [data-admin-target]").forEach((button) => button.classList.toggle("is-active", button.dataset.adminTarget === target));
+      cmsSidebar.classList.remove("is-open");
+      if (window.location.hash !== "#" + target) history.replaceState(null, "", "#" + target);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    document.querySelectorAll("[data-admin-target]").forEach((button) => button.addEventListener("click", () => openAdminPanel(button.dataset.adminTarget)));
+    const requestedAdminPanel = window.location.hash.replace(/^#/, "");
+    if (requestedAdminPanel && document.querySelector('[data-admin-panel="' + requestedAdminPanel + '"]')) openAdminPanel(requestedAdminPanel);
+    window.addEventListener("hashchange", () => {
+      const target = window.location.hash.replace(/^#/, "");
+      if (target && document.querySelector('[data-admin-panel="' + target + '"]')) openAdminPanel(target);
+    });
+    document.querySelector("#cms-menu-toggle").addEventListener("click", () => cmsSidebar.classList.toggle("is-open"));
+    document.querySelector("#coupon-menu-toggle").addEventListener("click", (event) => {
+      const expanded = event.currentTarget.getAttribute("aria-expanded") === "true";
+      event.currentTarget.setAttribute("aria-expanded", String(!expanded));
+      document.querySelector("#coupon-subnav").hidden = expanded;
+    });
+    document.querySelector("#settings-menu-toggle")?.addEventListener("click", (event) => {
+      const expanded = event.currentTarget.getAttribute("aria-expanded") === "true";
+      event.currentTarget.setAttribute("aria-expanded", String(!expanded));
+      document.querySelector("#settings-subnav").hidden = expanded;
+    });
+
+    function saveCategoryState() {
+      categoryPreferences = Object.fromEntries(adminCategories.map((item) => [item.key, {
+        visible: item.visible,
+        home: item.home,
+        order: item.order,
+      }]));
+      localStorage.setItem(categoryStorageKey, JSON.stringify(categoryPreferences));
+    }
+
+    function getCategoryKey(value) {
+      return String(value || "Other").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "other";
+    }
+
+    function formatCategoryDate(value) {
+      const date = new Date(value || Date.now());
+      if (Number.isNaN(date.getTime())) return "—";
+      return date.toLocaleDateString("vi-VN").replaceAll("/", "-");
+    }
+
+    function syncCategoriesFromOffers(offers) {
+      const grouped = new Map();
+      offers.forEach((offer) => {
+        const name = String(offer.category || "Other").trim() || "Other";
+        const key = getCategoryKey(name);
+        const createdAt = new Date(offer.createdAt || 0).getTime();
+        const current = grouped.get(key) || { key, id: key, name, type: "Coupon", count: 0, latestAt: 0 };
+        current.count += 1;
+        if (createdAt > current.latestAt) current.latestAt = createdAt;
+        grouped.set(key, current);
+      });
+      adminCategories = Array.from(grouped.values()).map((item) => {
+        const preference = categoryPreferences[item.key] || {};
+        return {
+          ...item,
+          visible: preference.visible !== false,
+          home: preference.home !== false,
+          order: Number(preference.order ?? 9999999),
+          date: formatCategoryDate(item.latestAt),
+        };
+      }).sort((a, b) => b.latestAt - a.latestAt || a.name.localeCompare(b.name));
+      renderCategories();
+    }
+
+    function formatAdminDate(value) {
+      const date = new Date(value || Date.now());
+      return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("vi-VN").replaceAll("/", "-");
+    }
+
+    function populateCouponFilters() {
+      const stores = Array.from(new Set(currentOffers.map((offer) => String(offer.brand || "").trim()).filter(Boolean))).sort();
+      const categories = Array.from(new Set(currentOffers.map((offer) => String(offer.category || "Other").trim()).filter(Boolean))).sort();
+      const storeSelect = document.querySelector("#offer-list-store");
+      const categorySelect = document.querySelector("#deal-list-category");
+      const dealCreateCategory = document.querySelector("#deal-create-category");
+      const currentStore = storeSelect.value;
+      const currentCategory = categorySelect.value;
+      storeSelect.innerHTML = '<option value="all">Tất cả store</option>' + stores.map((store) => '<option value="' + escapeHtml(store) + '">' + escapeHtml(store) + '</option>').join("");
+      categorySelect.innerHTML = '<option value="all">Tất cả danh mục</option>' + categories.map((category) => '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>').join("");
+      dealCreateCategory.innerHTML = categories.map((category) => '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>').join("") + '<option value="Other">Other</option>';
+      if (stores.includes(currentStore)) storeSelect.value = currentStore;
+      if (categories.includes(currentCategory)) categorySelect.value = currentCategory;
+    }
+
+    function getFilteredCouponItems(kind) {
+      const search = document.querySelector("#" + kind + "-list-search").value.trim().toLowerCase();
+      let items = currentOffers.filter((offer) => kind === "deal" ? offer.type === "deal" : offer.type !== "deal");
+      if (kind === "offer") {
+        const store = document.querySelector("#offer-list-store").value;
+        const type = document.querySelector("#offer-list-status").value;
+        items = items.filter((offer) => (store === "all" || offer.brand === store) && (type === "all" || offer.type === type));
+      } else {
+        const category = document.querySelector("#deal-list-category").value;
+        items = items.filter((offer) => category === "all" || offer.category === category);
+      }
+      return items.filter((offer) => !search || [offer.title, offer.brand, offer.code, offer.category].some((value) => String(value || "").toLowerCase().includes(search)));
+    }
+
+    function renderStoreManager() {
+      const query = document.querySelector("#store-list-search").value.trim().toLowerCase();
+      const groups = new Map();
+      currentOffers.forEach((offer) => {
+        const key = String(offer.brand || "Unknown store").trim() || "Unknown store";
+        const current = groups.get(key) || { brand: key, count: 0, logo: offer.logo || "", latestAt: 0 };
+        current.count += 1;
+        current.logo ||= offer.logo || "";
+        current.latestAt = Math.max(current.latestAt, new Date(offer.createdAt || 0).getTime());
+        groups.set(key, current);
+      });
+      const stores = Array.from(groups.values()).filter((store) => !query || store.brand.toLowerCase().includes(query)).sort((a, b) => b.latestAt - a.latestAt);
+      storeListBody.innerHTML = stores.length ? stores.map((store, index) => \`<tr><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="store" type="checkbox" /></td><td><button class="category-name-link store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">\${escapeHtml(store.brand)}</button></td><td>\${store.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(store.logo) + '" alt="" />' : '<span class="coupon-image-empty">No image</span>'}</td><td><select><option>Có</option><option>Không</option></select></td><td><strong>\${store.count}</strong></td><td>\${formatAdminDate(store.latestAt)}</td><td class="row-actions"><button class="table-edit-btn store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">✎</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="8">No data !</td></tr>';
+    }
+
+    function renderOfferManager() {
+      const items = getFilteredCouponItems("offer");
+      offerListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="offer" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.code || "No code")}</small></td><td><select><option>Có</option><option>Không</option></select></td><td><select><option>Có</option><option>Không</option></select></td><td>\${escapeHtml(offer.brand)}</td><td><input class="category-order" type="number" value="\${index + 1}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
+    }
+
+    function renderDealManager() {
+      const items = getFilteredCouponItems("deal");
+      dealListBody.innerHTML = items.length ? items.map((offer, index) => \`<tr data-offer-id="\${escapeHtml(offer.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="deal" type="checkbox" /></td><td><button class="category-name-link coupon-edit-btn" type="button">\${escapeHtml(offer.title)}</button><small class="coupon-code-note">\${escapeHtml(offer.discount)}</small></td><td>\${offer.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(offer.logo) + '" alt="" />' : '<span class="coupon-image-empty">No image</span>'}</td><td><select><option \${offer.visible !== false ? "selected" : ""}>Có</option><option \${offer.visible === false ? "selected" : ""}>Không</option></select></td><td>\${escapeHtml(offer.category)}</td><td><input class="category-order" type="number" value="\${Number(offer.order ?? index + 1)}" /></td><td>\${formatAdminDate(offer.createdAt)}</td><td class="row-actions"><button class="table-edit-btn coupon-edit-btn" type="button">✎</button><button class="table-delete-btn coupon-delete-btn" type="button">▰</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="9">No data !</td></tr>';
+    }
+
+    function renderCouponManagers() {
+      populateCouponFilters();
+      renderStoreManager();
+      renderOfferManager();
+      renderDealManager();
+      updateCouponSelectionCounts();
+    }
+
+    function parseBulkDealCsv(text) {
+      const rows = [];
+      let row = [];
+      let cell = "";
+      let quoted = false;
+      for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === '"') {
+          if (quoted && text[index + 1] === '"') { cell += '"'; index += 1; }
+          else quoted = !quoted;
+        } else if (char === "," && !quoted) {
+          row.push(cell.trim()); cell = "";
+        } else if ((char === String.fromCharCode(10) || char === String.fromCharCode(13)) && !quoted) {
+          if (char === String.fromCharCode(13) && text[index + 1] === String.fromCharCode(10)) index += 1;
+          row.push(cell.trim()); cell = "";
+          if (row.some(Boolean)) rows.push(row);
+          row = [];
+        } else cell += char;
+      }
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      if (rows.length < 2) return [];
+      const headers = rows.shift().map((header) => header.replace(/^\uFEFF/, "").trim().toLowerCase());
+      return rows.map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] || ""])));
+    }
+
+    function normalizeBulkDealRow(source) {
+      const row = Object.fromEntries(Object.entries(source || {}).map(([key, value]) => [String(key).trim().toLowerCase(), value]));
+      const pick = (...keys) => {
+        for (const key of keys) if (row[key] !== undefined && String(row[key]).trim()) return String(row[key]).trim();
+        return "";
+      };
+      const title = pick("title", "name", "deal_name", "tên deal");
+      const code = pick("code", "coupon_code", "mã");
+      const requestedType = pick("type", "offer_type", "loại").toLowerCase();
+      return {
+        title,
+        brand: pick("brand", "store", "merchant", "thương hiệu"),
+        discount: pick("discount", "sale", "giảm giá") || "Deal",
+        link: pick("link", "url", "affiliate_link", "affiliate link"),
+        category: pick("category", "catalog", "danh mục") || "Other",
+        review: pick("review", "description", "mô tả") || title,
+        expiry: pick("expiry", "expires", "hạn sử dụng"),
+        logo: pick("logo", "image", "logo_data"),
+        code,
+        type: code || ["coupon", "coupon code", "code"].includes(requestedType) ? "code" : requestedType === "promotion" ? "promotion" : "deal",
+        order: Number(pick("order", "stt")) || 9999999,
+        visible: !["false", "0", "no", "không"].includes(pick("visible", "hiển thị").toLowerCase()),
+      };
+    }
+
+    document.querySelector("#download-deal-template").addEventListener("click", () => {
+      const csv = ['type,title,brand,discount,link,category,description,expiry,code,logo', '"deal","Summer Sale","example.com","20% OFF","https://example.com/?ref=your-id","Fashion","20% off selected products","2026-12-31","",""', '"coupon","Welcome Coupon","example.com","10% OFF","https://example.com/?ref=your-id","Fashion","Coupon for new customers","2026-12-31","WELCOME10",""', ''].join(String.fromCharCode(10));
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "deal-coupon-import-template.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+
+    bulkDealImportForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const dataFiles = Array.from(bulkDealFileInput.files || []);
+      if (!dataFiles.length) return showToast("Chọn một hoặc nhiều file CSV/JSON.");
+      if (dataFiles.some((file) => file.size > 5 * 1024 * 1024)) return showToast("Mỗi file dữ liệu phải nhỏ hơn 5 MB.");
+      const submitButton = document.querySelector("#run-bulk-deal-import");
+      try {
+        submitButton.disabled = true;
+        const rawItems = [];
+        for (let fileIndex = 0; fileIndex < dataFiles.length; fileIndex += 1) {
+          const dataFile = dataFiles[fileIndex];
+          submitButton.textContent = "Đang đọc file " + (fileIndex + 1) + "/" + dataFiles.length + "...";
+          const text = await dataFile.text();
+          const parsed = dataFile.name.toLowerCase().endsWith(".json") ? JSON.parse(text) : parseBulkDealCsv(text);
+          const fileItems = Array.isArray(parsed) ? parsed : parsed.items;
+          if (!Array.isArray(fileItems)) throw new Error("File " + dataFile.name + " không đúng định dạng.");
+          fileItems.forEach((item) => rawItems.push({ ...item, source_file: dataFile.name }));
+        }
+        if (!rawItems.length) throw new Error("Các file không có dòng Deal/Coupon hợp lệ.");
+        if (rawItems.length > 500) throw new Error("Tổng cộng tối đa 500 Deal/Coupon trong một lần import.");
+        const sharedLogoFile = bulkDealLogoInput.files[0];
+        const sharedLogo = sharedLogoFile ? await readLogoFile(sharedLogoFile) : "";
+        submitButton.textContent = "Đang upload " + rawItems.length + " dòng...";
+        const res = await fetch("/api/offers/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: rawItems.map(normalizeBulkDealRow), sharedLogo }) });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.error || "Import thất bại.");
+        await loadOffers();
+        bulkDealImportForm.reset();
+        const errorText = (result.errors || []).slice(0, 5).map((item) => "Dòng " + item.row + ": " + item.error).join(" | ");
+        const couponCount = result.created.filter((item) => item.type === "code").length;
+        const dealCount = result.created.length - couponCount;
+        bulkDealResult.textContent = "Đã đăng " + result.created.length + "/" + result.total + " dòng: " + dealCount + " Deal, " + couponCount + " Coupon." + (errorText ? " Lỗi: " + errorText : "");
+        showToast("Đã đăng " + result.created.length + " Deal/Coupon lên website.");
+      } catch (error) {
+        bulkDealResult.textContent = error.message;
+        showToast(error.message);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = "Upload tất cả";
+      }
+    });
+
+    function updateCouponSelectionCounts() {
+      ["offer", "deal"].forEach((kind) => {
+        const target = document.querySelector("#selected-" + kind + "-count");
+        if (target) target.textContent = document.querySelectorAll('.coupon-row-select[data-list="' + kind + '"]:checked').length;
+      });
+    }
+
+    function updateSelectedCategoryCount() {
+      const checked = categoryTableBody.querySelectorAll(".category-select:checked").length;
+      document.querySelector("#selected-category-count").textContent = checked;
+      document.querySelector("#select-all-categories").checked = Boolean(checked) && checked === categoryTableBody.querySelectorAll(".category-select").length;
+    }
+
+    function renderCategories() {
+      const query = categorySearchInput.value.trim().toLowerCase();
+      const kind = categoryKindSelect.value;
+      const rows = adminCategories.filter((item) => (!query || item.name.toLowerCase().includes(query)) && (kind === "all" || item.type === kind));
+      categoryTableBody.innerHTML = rows.length ? rows.map((item, index) => \`
+        <tr data-category-id="\${item.id}">
+          <td class="row-number">\${index + 1}</td>
+          <td class="check-cell"><input class="category-select" type="checkbox" /></td>
+          <td><button class="category-name-link edit-category-btn" type="button">\${escapeHtml(item.name)}</button><small class="category-type-label">\${item.count} offer\${item.count === 1 ? "" : "s"}</small></td>
+          <td><select class="category-visible"><option value="true" \${item.visible ? "selected" : ""}>Có</option><option value="false" \${!item.visible ? "selected" : ""}>Không</option></select></td>
+          <td><select class="category-home"><option value="true" \${item.home ? "selected" : ""}>Có</option><option value="false" \${!item.home ? "selected" : ""}>Không</option></select></td>
+          <td><input class="category-order" type="number" value="\${Number(item.order || 0)}" /></td>
+          <td>\${escapeHtml(item.date)}</td>
+          <td class="row-actions"><button class="table-edit-btn edit-category-btn" type="button" title="Chỉnh sửa">✎</button><button class="table-delete-btn delete-category-btn" type="button" title="Xóa">▰</button></td>
+        </tr>\`).join("") : \`<tr><td class="category-no-results" colspan="8">Không tìm thấy danh mục phù hợp.</td></tr>\`;
+      updateSelectedCategoryCount();
+    }
+
+    function syncCategoryRows() {
+      categoryTableBody.querySelectorAll("tr[data-category-id]").forEach((row) => {
+        const item = adminCategories.find((category) => String(category.id) === row.dataset.categoryId);
+        if (!item) return;
+        item.visible = row.querySelector(".category-visible").value === "true";
+        item.home = row.querySelector(".category-home").value === "true";
+        item.order = Number(row.querySelector(".category-order").value || 0);
+      });
+    }
+
+    document.querySelector("#category-search-btn").addEventListener("click", renderCategories);
+    categorySearchInput.addEventListener("input", renderCategories);
+    categoryKindSelect.addEventListener("change", renderCategories);
+    document.querySelector("#select-all-categories").addEventListener("change", (event) => {
+      categoryTableBody.querySelectorAll(".category-select").forEach((checkbox) => { checkbox.checked = event.target.checked; });
+      updateSelectedCategoryCount();
+    });
+    categoryTableBody.addEventListener("change", (event) => {
+      if (event.target.matches(".category-select")) updateSelectedCategoryCount();
+    });
+    categoryTableBody.addEventListener("click", (event) => {
+      const row = event.target.closest("tr[data-category-id]");
+      if (!row) return;
+      const id = row.dataset.categoryId;
+      const item = adminCategories.find((category) => String(category.id) === id);
+      if (!item) return;
+      if (event.target.closest(".edit-category-btn")) {
+        openAdminPanel("offers");
+        showToast("Danh mục này được lấy từ offer đã upload. Hãy sửa category trong offer tương ứng.");
+      }
+      if (event.target.closest(".delete-category-btn") && confirm('Xóa danh mục "' + item.name + '"?')) {
+        showToast("Không thể xóa danh mục đang có offer. Hãy xóa hoặc chuyển category của các offer trước.");
+      }
+    });
+    document.querySelector("#save-categories-btn").addEventListener("click", () => {
+      syncCategoryRows();
+      saveCategoryState();
+      showToast("Đã cập nhật danh mục.");
+    });
+    document.querySelector("#add-category-btn").addEventListener("click", () => {
+      openAdminPanel("offers");
+      form.elements.customCategory.focus();
+      showToast("Nhập danh mục mới trong form upload offer.");
+    });
+    document.querySelector("#delete-categories-btn").addEventListener("click", () => {
+      const selectedIds = Array.from(categoryTableBody.querySelectorAll(".category-select:checked")).map((checkbox) => checkbox.closest("tr").dataset.categoryId);
+      if (!selectedIds.length) return showToast("Hãy chọn danh mục cần xóa.");
+      showToast("Danh mục được đồng bộ từ offer. Hãy xóa hoặc đổi category của offer tương ứng.");
+    });
+    document.querySelector("#reset-categories-btn").addEventListener("click", () => {
+      categorySearchInput.value = "";
+      categoryKindSelect.value = "all";
+      renderCategories();
+    });
+    document.querySelector("#export-categories-btn").addEventListener("click", () => {
+      const rows = [["Name", "Type", "Visible", "Home", "Order", "Date"], ...adminCategories.map((item) => [item.name, item.type, item.visible ? "Yes" : "No", item.home ? "Yes" : "No", item.order, item.date])];
+      const csv = rows.map((row) => row.map((cell) => '"' + String(cell).replaceAll('"', '""') + '"').join(",")).join("\\n");
+      const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "alocoupon-categories.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast("Đã export danh mục.");
+    });
+
+    document.querySelectorAll(".coupon-search-btn").forEach((button) => button.addEventListener("click", () => {
+      if (button.dataset.list === "store") renderStoreManager();
+      if (button.dataset.list === "offer") renderOfferManager();
+      if (button.dataset.list === "deal") renderDealManager();
+    }));
+    ["store-list-search", "offer-list-search", "deal-list-search"].forEach((id) => document.querySelector("#" + id).addEventListener("input", () => {
+      if (id.startsWith("store")) renderStoreManager();
+      if (id.startsWith("offer")) renderOfferManager();
+      if (id.startsWith("deal")) renderDealManager();
+    }));
+    ["offer-list-store", "offer-list-status"].forEach((id) => document.querySelector("#" + id).addEventListener("change", renderOfferManager));
+    ["deal-list-category", "deal-list-status"].forEach((id) => document.querySelector("#" + id).addEventListener("change", renderDealManager));
+
+    document.querySelectorAll(".create-coupon-btn").forEach((button) => button.addEventListener("click", () => {
+      const type = button.dataset.createType || "code";
+      if (type === "deal") {
+        resetDealCreateForm();
+        openAdminPanel("deal-create");
+        dealCreateForm.elements.title.focus();
+        return;
+      }
+      resetFormMode();
+      form.elements.type.value = type;
+      form.elements.code.required = type !== "deal";
+      saveButton.textContent = type === "deal" ? "Đăng deal" : "Đăng offer";
+      openAdminPanel("offers");
+      form.elements.brand.focus();
+    }));
+
+    document.querySelectorAll("[data-select-all]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      const kind = checkbox.dataset.selectAll;
+      document.querySelectorAll('.coupon-row-select[data-list="' + kind + '"]').forEach((item) => { item.checked = checkbox.checked; });
+      updateCouponSelectionCounts();
+    }));
+    document.querySelectorAll(".coupon-data-table").forEach((table) => table.addEventListener("change", (event) => {
+      if (event.target.matches(".coupon-row-select")) updateCouponSelectionCounts();
+    }));
+
+    async function deleteOfferFromManager(offerId) {
+      const offer = currentOffers.find((item) => item.id === offerId);
+      if (!offer || !confirm('Xóa "' + offer.title + '"?')) return;
+      const res = await fetch("/api/offers/" + encodeURIComponent(offerId), { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Xóa thất bại.");
+      await loadOffers();
+      showToast("Đã xóa dữ liệu.");
+    }
+
+    [offerListBody, dealListBody].forEach((body) => body.addEventListener("click", (event) => {
+      const row = event.target.closest("tr[data-offer-id]");
+      if (!row) return;
+      const offer = currentOffers.find((item) => item.id === row.dataset.offerId);
+      if (event.target.closest(".coupon-edit-btn") && offer) {
+        fillForm(offer);
+        openAdminPanel("offers");
+      }
+      if (event.target.closest(".coupon-delete-btn")) deleteOfferFromManager(row.dataset.offerId);
+    }));
+
+    storeListBody.addEventListener("click", (event) => {
+      const button = event.target.closest(".store-open-btn");
+      if (!button) return;
+      document.querySelector("#offer-list-store").value = button.dataset.brand;
+      renderOfferManager();
+      openAdminPanel("offer-list");
+    });
+
+    document.querySelectorAll(".batch-delete-offers-btn").forEach((button) => button.addEventListener("click", async () => {
+      const kind = button.dataset.listType;
+      const ids = Array.from(document.querySelectorAll('.coupon-row-select[data-list="' + kind + '"]:checked')).map((checkbox) => checkbox.closest("tr").dataset.offerId);
+      if (!ids.length) return showToast("Hãy chọn dữ liệu cần xóa.");
+      if (!confirm("Xóa " + ids.length + " mục đã chọn?")) return;
+      const responses = await Promise.all(ids.map((id) => fetch("/api/offers/" + encodeURIComponent(id), { method: "DELETE" })));
+      if (responses.some((response) => !response.ok)) showToast("Một số mục chưa thể xóa.");
+      await loadOffers();
+      showToast("Đã cập nhật danh sách.");
+    }));
+
+    document.querySelector("#update-offer-list-btn").addEventListener("click", () => showToast("Danh sách offer đã được cập nhật."));
+    document.querySelector("#update-deal-list-btn").addEventListener("click", () => showToast("Danh sách deal đã được cập nhật."));
 
     function escapeHtml(value) {
       return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -3524,6 +4474,81 @@ function adminPage(adminEmail = "") {
       });
     }
 
+    function resetDealCreateForm() {
+      dealCreateForm.reset();
+      dealCreateForm.elements.order.value = "9999999";
+      currentDealLogo = "";
+      dealCreateImageInput.value = "";
+      dealCreatePreview.src = "";
+      dealCreatePreviewRow.hidden = true;
+      dealCreateFileName.textContent = "Chưa chọn tệp";
+    }
+
+    dealCreateForm.elements.title.addEventListener("input", () => {
+      dealCreateForm.elements.slug.value = dealCreateForm.elements.title.value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    });
+
+    dealCreateImageInput.addEventListener("change", async () => {
+      const file = dealCreateImageInput.files[0];
+      if (!file) return;
+      try {
+        currentDealLogo = await readLogoFile(file);
+        dealCreatePreview.src = currentDealLogo;
+        dealCreatePreviewRow.hidden = false;
+        dealCreateFileName.textContent = file.name;
+      } catch (error) {
+        resetDealCreateForm();
+        showToast(error.message);
+      }
+    });
+
+    document.querySelector("#deal-create-remove-image").addEventListener("click", () => {
+      currentDealLogo = "";
+      dealCreateImageInput.value = "";
+      dealCreatePreview.src = "";
+      dealCreatePreviewRow.hidden = true;
+      dealCreateFileName.textContent = "Chưa chọn tệp";
+    });
+
+    dealCreateForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!currentDealLogo) return showToast("Hãy chọn ảnh cho deal.");
+      const data = new FormData(dealCreateForm);
+      const payload = {
+        title: data.get("title"),
+        slug: data.get("slug"),
+        order: Number(data.get("order") || 9999999),
+        brand: data.get("brand"),
+        category: data.get("category"),
+        visible: dealCreateForm.elements.visible.checked,
+        review: data.get("review"),
+        discount: data.get("discount"),
+        link: data.get("link"),
+        expiry: data.get("expiry"),
+        metaTitle: data.get("metaTitle"),
+        type: "deal",
+        code: "",
+        logo: currentDealLogo,
+      };
+      const submitButton = document.querySelector('[form="deal-create-form"]');
+      submitButton.disabled = true;
+      submitButton.textContent = "Đang lưu...";
+      try {
+        const res = await fetch("/api/offers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.error || "Không thể đăng deal.");
+        resetDealCreateForm();
+        await loadOffers();
+        openAdminPanel("deal-list");
+        showToast("Đã đăng deal thành công.");
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = "▣ Cập nhật";
+      }
+    });
+
     function getPayload() {
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.category = (payload.customCategory || payload.category || "").trim();
@@ -3553,12 +4578,68 @@ function adminPage(adminEmail = "") {
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function setCurrentProjectFiles(files) {
+      currentProjectFiles = Array.from(files || []);
+      selectedProjectFile.hidden = !currentProjectFiles.length;
+      projectDropzone.classList.toggle("has-file", Boolean(currentProjectFiles.length));
+      if (!currentProjectFiles.length) {
+        projectInput.value = "";
+        return;
+      }
+      const totalSize = currentProjectFiles.reduce((sum, file) => sum + file.size, 0);
+      projectFileName.textContent = currentProjectFiles.length === 1 ? currentProjectFiles[0].name : currentProjectFiles.length + " files selected";
+      projectFileSize.textContent = formatFileSize(totalSize);
+      projectFileType.textContent = currentProjectFiles.length === 1 ? (currentProjectFiles[0].name.split(".").pop() || "FILE").slice(0, 5).toUpperCase() : "BATCH";
+    }
+
+    function validateProjectFile(file) {
+      const allowed = ["zip", "rar", "7z", "tar", "gz", "js", "jsx", "ts", "tsx", "html", "css", "json", "md", "txt", "py", "java", "php", "sql", "png", "jpg", "jpeg", "webp", "gif", "svg", "pdf"];
+      const extension = (file.name.split(".").pop() || "").toLowerCase();
+      if (!allowed.includes(extension)) throw new Error("Choose a supported source-code or archive file.");
+      if (file.size > 8 * 1024 * 1024) throw new Error("Project file must be 8 MB or smaller.");
+    }
+
+    function readProjectFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Could not read the selected project file."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function loadProjects() {
+      const res = await fetch("/api/projects");
+      if (!res.ok) return;
+      const projects = await res.json();
+      projectCount.textContent = projects.length;
+      projectLibrary.innerHTML = projects.length ? projects.map((project) => \`
+        <article class="project-file-card">
+          \${/\.(png|jpe?g|webp|gif|svg)$/i.test(project.fileName) ? \`<img class="project-media-thumb" src="/api/projects/\${encodeURIComponent(project.id)}/preview" alt="\${escapeHtml(project.name)}" />\` : ""}
+          <div class="project-file-card-top">
+            <span class="file-type-badge">\${escapeHtml((project.fileName.split(".").pop() || "FILE").slice(0, 5).toUpperCase())}</span>
+            <div><p class="project-kind">\${escapeHtml(project.projectType)}\${project.version ? " · " + escapeHtml(project.version) : ""}</p><h3>\${escapeHtml(project.name)}</h3></div>
+          </div>
+          <p class="project-description">\${escapeHtml(project.description)}</p>
+          <div class="project-file-meta"><span>\${escapeHtml(project.fileName)}</span><span>\${formatFileSize(project.size)}</span><span>\${escapeHtml(new Date(project.createdAt).toLocaleString())}</span></div>
+          <div class="admin-offer-actions"><a class="button button-outline" href="/api/projects/\${encodeURIComponent(project.id)}/download">Download</a><button class="button button-outline delete-project-btn" data-id="\${escapeHtml(project.id)}" data-name="\${escapeHtml(project.name)}" type="button">Delete</button></div>
+        </article>\`).join("") : \`<div class="project-empty-state"><span class="upload-icon">&#8593;</span><h3>No project files yet</h3><p>Select a source file and add its description to build your private library.</p></div>\`;
+    }
+
     async function loadOffers() {
       const res = await fetch("/api/offers");
       const offers = await res.json();
       currentOffers = Array.isArray(offers) ? offers : [];
-      count.textContent = offers.length;
-      list.innerHTML = offers.length ? offers.map((offer) => \`
+      syncCategoriesFromOffers(currentOffers);
+      renderCouponManagers();
+      count.textContent = currentOffers.length;
+      list.innerHTML = currentOffers.length ? currentOffers.map((offer) => \`
         <article class="admin-offer-card">
           <div class="admin-offer-top">
             <div class="admin-brand-title">\${offer.logo ? \`<img class="admin-brand-logo" src="\${escapeHtml(offer.logo)}" alt="" />\` : ""}<div><p class="store-name">\${escapeHtml(offer.brand)}</p><h3>\${escapeHtml(offer.title)}</h3></div></div>
@@ -3650,12 +4731,191 @@ function adminPage(adminEmail = "") {
       showToast("Offer deleted.");
     });
 
-    document.querySelector("#logout-btn").addEventListener("click", async () => {
-      await fetch("/api/logout", { method: "POST" });
-      location.href = "/admin";
+    projectInput.addEventListener("change", () => {
+      const selected = Array.from(projectInput.files || []);
+      const valid = [];
+      const invalid = [];
+      selected.forEach((file) => {
+        try { validateProjectFile(file); valid.push(file); }
+        catch (error) { invalid.push(file.name + ": " + error.message); }
+      });
+      setCurrentProjectFiles(valid);
+      if (invalid.length) showToast(valid.length + " file hợp lệ, " + invalid.length + " file bị bỏ qua.");
     });
 
+    ["dragenter", "dragover"].forEach((eventName) => projectDropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      projectDropzone.classList.add("is-dragging");
+    }));
+    ["dragleave", "drop"].forEach((eventName) => projectDropzone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      projectDropzone.classList.remove("is-dragging");
+    }));
+    projectDropzone.addEventListener("drop", (event) => {
+      const dropped = Array.from(event.dataTransfer.files || []);
+      const valid = [];
+      dropped.forEach((file) => {
+        try { validateProjectFile(file); valid.push(file); } catch {}
+      });
+      setCurrentProjectFiles(valid);
+      if (valid.length !== dropped.length) showToast(valid.length + "/" + dropped.length + " file hợp lệ.");
+    });
+
+    document.querySelector("#remove-project-file").addEventListener("click", () => setCurrentProjectFiles([]));
+
+    projectForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!currentProjectFiles.length) {
+        showToast("Chọn ít nhất một file trước khi upload.");
+        projectInput.click();
+        return;
+      }
+      try {
+        uploadProjectButton.disabled = true;
+        const formData = new FormData(projectForm);
+        const files = [...currentProjectFiles];
+        const failedFiles = [];
+        let uploaded = 0;
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          uploadProjectButton.textContent = "Uploading " + (index + 1) + "/" + files.length + "...";
+          try {
+            validateProjectFile(file);
+            const baseName = file.name.replace(/\.[^.]+$/, "");
+            const prefix = String(formData.get("name") || "").trim();
+            const payload = {
+              name: files.length > 1 ? (prefix ? prefix + " - " + baseName : baseName) : (prefix || baseName),
+              projectType: formData.get("projectType"),
+              version: formData.get("version"),
+              description: formData.get("description"),
+              fileName: file.name,
+              fileData: await readProjectFile(file),
+            };
+            const res = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const result = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(result.error || "Upload failed.");
+            uploaded += 1;
+          } catch {
+            failedFiles.push(file);
+          }
+        }
+        if (!failedFiles.length) projectForm.reset();
+        setCurrentProjectFiles(failedFiles);
+        await loadProjects();
+        showToast("Đã upload " + uploaded + "/" + files.length + " file." + (failedFiles.length ? " File lỗi vẫn được giữ để thử lại." : ""));
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        uploadProjectButton.disabled = false;
+        uploadProjectButton.textContent = "Upload Projects";
+      }
+    });
+
+    projectLibrary.addEventListener("click", async (event) => {
+      const button = event.target.closest(".delete-project-btn");
+      if (!button || !confirm('Delete "' + button.dataset.name + '"?')) return;
+      const res = await fetch("/api/projects/" + encodeURIComponent(button.dataset.id), { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Delete failed.");
+      await loadProjects();
+      showToast("Project deleted.");
+    });
+
+    async function loadAdminUsers() {
+      const res = await fetch("/api/admin/users");
+      const users = res.ok ? await res.json() : [];
+      adminUserTableBody.innerHTML = users.length ? users.map((user) => {
+        const registered = new Date(user.createdAt || Date.now()).toLocaleDateString("vi-VN");
+        return '<tr><td><strong>' + escapeHtml(user.name) + '</strong><small class="cms-table-sub">' + escapeHtml(user.role) + '</small></td><td>' + escapeHtml(user.username) + '</td><td>' + escapeHtml(user.email) + '</td><td>' + escapeHtml(user.phone || "—") + '</td><td>' + escapeHtml(registered) + '</td><td><span class="cms-status-active">Hoạt động</span></td><td><button class="cms-icon-btn danger delete-admin-user" type="button" data-id="' + escapeHtml(user.id) + '" data-name="' + escapeHtml(user.name) + '">×</button></td></tr>';
+      }).join("") : '<tr><td colspan="7">Chưa có user.</td></tr>';
+    }
+
+    adminUserForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const payload = Object.fromEntries(new FormData(adminUserForm));
+      const res = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể thêm user.");
+      adminUserForm.reset();
+      await loadAdminUsers();
+      showToast("Đã thêm user và cấp quyền đăng nhập.");
+    });
+
+    adminUserTableBody.addEventListener("click", async (event) => {
+      const button = event.target.closest(".delete-admin-user");
+      if (!button || !confirm('Xóa user "' + button.dataset.name + '"?')) return;
+      const res = await fetch("/api/admin/users/" + encodeURIComponent(button.dataset.id), { method: "DELETE" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể xóa user.");
+      await loadAdminUsers();
+      showToast("Đã xóa user.");
+    });
+
+    function syncSettingsForms() {
+      settingsForms.forEach((settingsForm) => {
+        Array.from(settingsForm.elements).forEach((element) => {
+          if (!element.name || !(element.name in currentSettings)) return;
+          if (element.type === "checkbox") element.checked = Boolean(currentSettings[element.name]);
+          else element.value = currentSettings[element.name] || "";
+        });
+      });
+      document.querySelectorAll("[data-setting-preview]").forEach((preview) => {
+        const value = currentSettings[preview.dataset.settingPreview] || "";
+        preview.hidden = !value;
+        if (value) preview.src = value;
+      });
+    }
+
+    async function loadSiteSettings() {
+      const res = await fetch("/api/admin/settings");
+      if (!res.ok) return;
+      currentSettings = await res.json();
+      syncSettingsForms();
+    }
+
+    document.querySelectorAll("[data-setting-file]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const file = input.files[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/") || file.size > 700 * 1024) {
+          input.value = "";
+          return showToast("Ảnh phải nhỏ hơn 700 KB.");
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          currentSettings[input.dataset.settingFile] = reader.result;
+          syncSettingsForms();
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    settingsForms.forEach((settingsForm) => settingsForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      Array.from(settingsForm.elements).forEach((element) => {
+        if (!element.name) return;
+        currentSettings[element.name] = element.type === "checkbox" ? element.checked : element.value;
+      });
+      const res = await fetch("/api/admin/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentSettings) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || "Không thể lưu cấu hình.");
+      currentSettings = result;
+      syncSettingsForms();
+      showToast("Đã cập nhật cấu hình website.");
+    }));
+
+    async function logoutAdmin() {
+      await fetch("/api/logout", { method: "POST" });
+      location.href = "/admin";
+    }
+    document.querySelector("#logout-btn").addEventListener("click", logoutAdmin);
+    document.querySelector("#top-logout-btn").addEventListener("click", logoutAdmin);
+
+    renderCategories();
     loadOffers();
+    loadProjects();
+    loadAdminUsers();
+    loadSiteSettings();
   </script>
 </body>
 </html>`;
@@ -3701,6 +4961,7 @@ function serveStatic(req, res, pathname) {
 
     res.writeHead(200, {
       "Content-Type": types[path.extname(filePath).toLowerCase()] || "application/octet-stream",
+      "Cache-Control": [".html", ".css", ".js"].includes(path.extname(filePath).toLowerCase()) ? "no-cache, must-revalidate" : "public, max-age=86400",
     });
     fs.createReadStream(filePath).pipe(res);
   });
@@ -3806,6 +5067,16 @@ function dealPage(offer) {
 }
 
 function storePage(group) {
+  const formatStoreDiscount = (value) => String(value || "Deal").trim()
+    .replace(/^([$£€])(\d+(?:\.\d+)?)%\s*off$/i, "$1$2 OFF");
+  const getStoreDiscountScore = (value) => {
+    const text = formatStoreDiscount(value).toLowerCase();
+    const percent = text.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (percent) return Number(percent[1]) * 100;
+    const amount = text.match(/[$£€]\s*(\d+(?:\.\d+)?)/);
+    if (amount) return Number(amount[1]);
+    return text.includes("free") ? 20 : 0;
+  };
   const brand = escapeHtml(group.brand);
   const storePath = getOfferStorePath(group.brand);
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
@@ -3813,26 +5084,40 @@ function storePage(group) {
   const structuredData = jsonLdScript(storeStructuredData(group));
   const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = group.items.length - codeCount;
-  const bestOffer = escapeHtml(group.items[0]?.discount || "Best Deal");
-  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(group.items[0]?.link || "#"));
-  const offerRows = group.items.map((offer) => {
+  const primaryOffer = group.items.find((offer) => offer.logo) || group.items[0] || {};
+  const bestOfferItem = [...group.items].sort((a, b) => getStoreDiscountScore(b.discount) - getStoreDiscountScore(a.discount))[0];
+  const bestOffer = escapeHtml(formatStoreDiscount(bestOfferItem?.discount || "Best Deal"));
+  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(primaryOffer.link || "#"));
+  const domain = escapeHtml(getOfferLogoHost(primaryOffer));
+  const logo = escapeHtml(primaryOffer.logo || "");
+  const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
+  const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
+  const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
+  const offerRows = group.items.map((offer, index) => {
     const title = escapeHtml(getDisplayOfferTitle(offer));
     const summary = escapeHtml(getOfferSummary(offer));
-    const discount = escapeHtml(offer.discount || "Deal");
-    const code = escapeHtml(isUsableCouponCode(offer.code) ? offer.code : "No code needed");
-    const typeLabel = isUsableCouponCode(offer.code) ? "Coupon code" : "Affiliate deal";
+    const discount = escapeHtml(formatStoreDiscount(offer.discount));
+    const hasCode = isUsableCouponCode(offer.code);
+    const code = escapeHtml(hasCode ? offer.code : "No code needed");
+    const typeLabel = hasCode ? "Coupon code" : "Online deal";
+    const expiry = escapeHtml(offer.expiry || "Limited time");
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
-    const dealLink = escapeHtml(getOfferDealPath(offer));
     return `
-      <article class="brand-offer-card">
-        <div class="brand-offer-discount">${discount}</div>
-        <div>
-          <p class="brand-offer-type">${typeLabel}</p>
-          <h2><a href="${dealLink}">${title}</a></h2>
+      <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount} ${code}`.toLowerCase())}">
+        <div class="brand-offer-discount"><strong>${discount}</strong><span>${hasCode ? "COUPON" : "DEAL"}</span></div>
+        <div class="brand-offer-content">
+          <div class="brand-offer-meta"><span class="offer-type-dot"></span>${typeLabel}<span>•</span><span>${expiry}</span><span class="verified-label">✓ Verified</span></div>
+          <h2>${title}</h2>
           <p>${summary}</p>
-          <div class="brand-offer-code">${code}</div>
+          <div class="brand-offer-code-row">
+            <span>${hasCode ? "Promo code" : "How to redeem"}</span>
+            <strong>${code}</strong>
+          </div>
         </div>
-        <a class="brand-offer-action" href="${safeLink}" rel="sponsored noopener">Open</a>
+        <div class="brand-offer-side">
+          <small>#${index + 1} store offer</small>
+          <a class="brand-offer-action" href="${safeLink}" data-code="${hasCode ? code : ""}" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
+        </div>
       </article>
     `;
   }).join("");
@@ -3850,51 +5135,154 @@ function storePage(group) {
   ${structuredData}
   <link rel="stylesheet" href="/styles.css" />
   <style>
-    body { background: #f4fbf8; color: #17202a; font-family: Arial, sans-serif; margin: 0; }
-    .brand-page { margin: 0 auto; max-width: 1080px; padding: 42px 20px 64px; }
-    .brand-hero { background: #fff; border: 1px solid #dfe7ef; border-radius: 12px; box-shadow: 0 20px 50px rgba(16, 24, 40, .1); padding: 28px; }
-    .brand-eyebrow { color: #08764f; font-size: 13px; font-weight: 900; letter-spacing: .02em; margin: 0 0 8px; text-transform: uppercase; }
-    .brand-page h1 { color: #17202a; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.05; margin: 0 0 12px; }
-    .brand-copy { color: #5f6d7e; font-size: 1rem; margin: 0 0 18px; max-width: 720px; }
-    .brand-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 0; }
-    .brand-stats span { background: #e8f8f0; border-radius: 999px; color: #08764f; font-weight: 900; padding: 8px 12px; }
-    .brand-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
-    .brand-actions a { background: #13a76b; border-radius: 999px; color: #fff; font-weight: 900; padding: 12px 16px; text-decoration: none; }
-    .brand-actions a.secondary { background: #e8f8f0; color: #08764f; }
-    .brand-offer-list { display: grid; gap: 14px; margin-top: 22px; }
-    .brand-offer-card { align-items: center; background: #fff; border: 1px solid #dfe7ef; border-radius: 10px; box-shadow: 0 12px 28px rgba(16, 24, 40, .08); display: grid; gap: 18px; grid-template-columns: 120px 1fr auto; padding: 18px; }
-    .brand-offer-discount { color: #029b22; font-size: 1.5rem; font-weight: 900; text-align: center; }
-    .brand-offer-type { color: #667085; font-size: .78rem; font-weight: 900; margin: 0 0 6px; text-transform: uppercase; }
-    .brand-offer-card h2 { font-size: 1.12rem; margin: 0 0 6px; }
-    .brand-offer-card h2 a { color: inherit; text-decoration: none; }
-    .brand-offer-card h2 a:hover { color: #08764f; text-decoration: underline; text-underline-offset: 3px; }
-    .brand-offer-card p { color: #667085; margin: 0 0 10px; }
-    .brand-offer-code { background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 8px; display: inline-block; font-weight: 900; padding: 8px 10px; }
-    .brand-offer-action { background: #029b22; border-radius: 7px; color: #fff; font-weight: 900; padding: 12px 14px; text-align: center; text-decoration: none; }
-    @media (max-width: 760px) { .brand-offer-card { grid-template-columns: 1fr; } .brand-offer-discount { text-align: left; } .brand-offer-action { width: fit-content; } }
+    :root { --store-blue: #087dbd; --store-navy: #11334b; --store-green: #0a9b67; --store-line: #e2e8ee; --store-muted: #667786; }
+    * { box-sizing: border-box; }
+    html, body { overflow-x: hidden; }
+    body { background: #f5f8fa; color: var(--store-navy); font-family: Inter, Arial, sans-serif; margin: 0; }
+    .brand-topbar { background: #fff; border-bottom: 1px solid var(--store-line); }
+    .brand-topbar-inner { align-items: center; display: flex; justify-content: space-between; margin: auto; max-width: 1180px; padding: 16px 22px; }
+    .brand-site-logo { color: var(--store-navy); font-size: 1.35rem; font-weight: 950; letter-spacing: -.04em; text-decoration: none; }
+    .brand-site-logo span { color: var(--store-green); }
+    .brand-back-link { color: #516473; font-size: .86rem; font-weight: 800; text-decoration: none; }
+    .brand-back-link:hover { color: var(--store-blue); }
+    .brand-page { margin: 0 auto; max-width: 1180px; padding: 26px 22px 72px; }
+    .brand-breadcrumb { color: #7a8995; font-size: .8rem; margin: 0 0 18px; }
+    .brand-breadcrumb a { color: inherit; text-decoration: none; }
+    .brand-breadcrumb strong { color: #3f5566; }
+    .brand-hero { background: linear-gradient(135deg, #fff 60%, #edf9f5); border: 1px solid var(--store-line); border-radius: 22px; box-shadow: 0 16px 40px rgba(26, 52, 70, .08); overflow: hidden; padding: 30px; }
+    .brand-hero-main { align-items: center; display: grid; gap: 24px; grid-template-columns: 118px minmax(0, 1fr) 220px; }
+    .brand-logo-shell { align-items: center; background: #fff; border: 1px solid #dfe7ec; border-radius: 20px; box-shadow: 0 8px 22px rgba(17, 51, 75, .08); display: flex; height: 118px; justify-content: center; overflow: hidden; padding: 14px; position: relative; width: 118px; }
+    .brand-logo-shell img { height: 100%; object-fit: contain; position: relative; width: 100%; z-index: 1; }
+    .brand-logo-fallback { align-items: center; background: linear-gradient(145deg, #eef8fd, #e9f8f1); color: var(--store-blue); display: flex; font-size: 1.8rem; font-weight: 950; inset: 0; justify-content: center; position: absolute; }
+    .brand-eyebrow { align-items: center; color: var(--store-green); display: flex; font-size: .72rem; font-weight: 950; gap: 7px; letter-spacing: .08em; margin: 0 0 9px; text-transform: uppercase; }
+    .brand-eyebrow i { background: var(--store-green); border-radius: 50%; height: 7px; width: 7px; }
+    .brand-hero-main > div { min-width: 0; }
+    .brand-page h1 { color: var(--store-navy); font-size: clamp(1.8rem, 4vw, 2.75rem); letter-spacing: -.04em; line-height: 1.08; margin: 0 0 9px; overflow-wrap: anywhere; }
+    .brand-domain { color: #738491; font-size: .86rem; margin: 0 0 12px; }
+    .brand-copy { color: var(--store-muted); font-size: .94rem; line-height: 1.65; margin: 0; max-width: 680px; }
+    .brand-best-box { background: #113b52; border-radius: 17px; color: #fff; padding: 20px; text-align: center; }
+    .brand-best-box span { color: #b9d5e2; display: block; font-size: .7rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .brand-best-box strong { display: block; font-size: 1.65rem; margin: 8px 0 14px; }
+    .brand-best-box a { background: #12a873; border-radius: 10px; color: #fff; display: block; font-size: .82rem; font-weight: 900; padding: 11px; text-decoration: none; }
+    .brand-stats { border-top: 1px solid var(--store-line); display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 27px; padding-top: 22px; }
+    .brand-stat { border-right: 1px solid var(--store-line); padding: 0 22px; }
+    .brand-stat:first-child { padding-left: 0; }
+    .brand-stat:last-child { border: 0; }
+    .brand-stat strong { color: var(--store-navy); display: block; font-size: 1.15rem; }
+    .brand-stat span { color: #7c8a95; font-size: .74rem; font-weight: 700; }
+    .brand-offers-head { align-items: end; display: flex; gap: 20px; justify-content: space-between; margin: 32px 0 16px; }
+    .brand-offers-head h2 { font-size: 1.45rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+    .brand-offers-head p { color: var(--store-muted); font-size: .85rem; margin: 0; }
+    .brand-offer-tools { align-items: center; display: flex; gap: 9px; }
+    .brand-offer-search { background: #fff; border: 1px solid var(--store-line); border-radius: 10px; color: var(--store-navy); min-width: 220px; outline: none; padding: 10px 13px; }
+    .brand-offer-search:focus { border-color: var(--store-blue); box-shadow: 0 0 0 3px rgba(8, 125, 189, .1); }
+    .brand-filter { background: #fff; border: 1px solid var(--store-line); border-radius: 9px; color: #637480; cursor: pointer; font-size: .76rem; font-weight: 850; padding: 10px 12px; }
+    .brand-filter.is-active { background: var(--store-navy); border-color: var(--store-navy); color: #fff; }
+    .brand-offer-list { display: grid; gap: 14px; }
+    .brand-offer-card { align-items: center; background: #fff; border: 1px solid var(--store-line); border-radius: 16px; display: grid; gap: 22px; grid-template-columns: 118px minmax(0, 1fr) 150px; padding: 20px; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+    .brand-offer-card:hover { border-color: rgba(8, 125, 189, .45); box-shadow: 0 12px 28px rgba(17, 51, 75, .09); transform: translateY(-2px); }
+    .brand-offer-card[hidden] { display: none; }
+    .brand-offer-discount { align-items: center; background: #ecf9f3; border: 1px solid #d4f0e3; border-radius: 14px; color: #07825a; display: flex; flex-direction: column; justify-content: center; min-height: 92px; padding: 12px; text-align: center; }
+    .brand-offer-discount strong { font-size: 1.22rem; line-height: 1.1; }
+    .brand-offer-discount span { font-size: .66rem; font-weight: 900; letter-spacing: .1em; margin-top: 7px; }
+    .brand-offer-meta { align-items: center; color: #778793; display: flex; flex-wrap: wrap; font-size: .68rem; font-weight: 800; gap: 7px; margin: 0 0 7px; text-transform: uppercase; }
+    .offer-type-dot { background: var(--store-blue); border-radius: 50%; height: 6px; width: 6px; }
+    .verified-label { color: var(--store-green); }
+    .brand-offer-card h2 { color: var(--store-navy); font-size: 1.04rem; line-height: 1.35; margin: 0 0 7px; }
+    .brand-offer-card p { color: var(--store-muted); font-size: .83rem; line-height: 1.5; margin: 0 0 12px; }
+    .brand-offer-code-row { align-items: center; display: flex; gap: 9px; }
+    .brand-offer-code-row span { color: #87949d; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+    .brand-offer-code-row strong { background: #f7fafb; border: 1px dashed #aebdc7; border-radius: 7px; color: #344b5c; font-size: .76rem; letter-spacing: .05em; padding: 7px 9px; }
+    .brand-offer-side { align-items: stretch; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+    .brand-offer-side small { color: #91a0aa; font-size: .68rem; }
+    .brand-offer-action { align-items: center; background: var(--store-green); border-radius: 10px; color: #fff; display: flex; font-size: .82rem; font-weight: 900; justify-content: center; padding: 12px 14px; text-decoration: none; }
+    .brand-offer-action span { margin-left: 8px; transition: transform .18s ease; }
+    .brand-offer-action:hover span { transform: translateX(3px); }
+    .brand-empty { background: #fff; border: 1px dashed #bac7cf; border-radius: 14px; color: #6e7f8b; padding: 30px; text-align: center; }
+    .brand-trust-note { align-items: center; color: #748590; display: flex; font-size: .76rem; gap: 7px; justify-content: center; margin: 24px 0 0; }
+    .brand-trust-note strong { color: var(--store-green); }
+    @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 100px 1fr; } .brand-logo-shell { height: 100px; width: 100px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
+    @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 16px; grid-template-columns: 76px 1fr; } .brand-logo-shell { border-radius: 14px; height: 76px; padding: 8px; width: 76px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
   </style>
 </head>
 <body>
+  <header class="brand-topbar">
+    <div class="brand-topbar-inner">
+      <a class="brand-site-logo" href="/">Alo<span>Coupon</span></a>
+      <a class="brand-back-link" href="/#stores">← Explore all stores</a>
+    </div>
+  </header>
   <main class="brand-page">
+    <p class="brand-breadcrumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/#stores">Stores</a> &nbsp;/&nbsp; <strong>${brand}</strong></p>
     <section class="brand-hero">
-      <p class="brand-eyebrow">AloCoupon Store Page</p>
-      <h1>${brand} Coupons and Promo Codes</h1>
-      <p class="brand-copy">${description}</p>
-      <div class="brand-stats">
-        <span>${group.items.length} offers</span>
-        <span>${codeCount} coupon codes</span>
-        <span>${dealCount} deals</span>
-        <span>Best offer: ${bestOffer}</span>
+      <div class="brand-hero-main">
+        <div class="brand-logo-shell">
+          <span class="brand-logo-fallback"${logo ? ` style="display:none"` : ""}>${initials}</span>
+          ${logo ? `<img src="${logo}" alt="${brand} logo" onerror="this.hidden=true;this.previousElementSibling.style.display='flex'" />` : ""}
+        </div>
+        <div>
+          <p class="brand-eyebrow"><i></i> Verified store</p>
+          <h1>${brand} Coupons & Deals</h1>
+          <p class="brand-domain">${domain}</p>
+          <p class="brand-copy">${description}</p>
+        </div>
+        <div class="brand-best-box">
+          <span>Best available offer</span>
+          <strong>${bestOffer}</strong>
+          <a href="${affiliateLink}" rel="sponsored noopener">Visit ${brand}</a>
+        </div>
       </div>
-      <div class="brand-actions">
-        <a href="${affiliateLink}" rel="sponsored noopener">Open</a>
-        <a class="secondary" href="/#store-detail">Back to Coupon Store</a>
+      <div class="brand-stats">
+        <div class="brand-stat"><strong>${group.items.length}</strong><span>Active offers</span></div>
+        <div class="brand-stat"><strong>${codeCount}</strong><span>Coupon codes</span></div>
+        <div class="brand-stat"><strong>${dealCount}</strong><span>Online deals</span></div>
+        <div class="brand-stat"><strong>${updatedLabel}</strong><span>Last checked</span></div>
       </div>
     </section>
+    <div class="brand-offers-head">
+      <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
+      <div class="brand-offer-tools">
+        <input class="brand-offer-search" type="search" placeholder="Search offers..." aria-label="Search store offers" />
+        <button class="brand-filter is-active" type="button" data-filter="all">All</button>
+        <button class="brand-filter" type="button" data-filter="code">Codes</button>
+        <button class="brand-filter" type="button" data-filter="deal">Deals</button>
+      </div>
+    </div>
     <section class="brand-offer-list" aria-label="${brand} offers">
       ${offerRows}
     </section>
+    <p class="brand-empty" hidden>No offers match your search.</p>
+    <p class="brand-trust-note"><strong>✓ Verified</strong> · Affiliate links may earn AloCoupon a commission at no extra cost to you.</p>
   </main>
+  <script>
+    (() => {
+      const cards = [...document.querySelectorAll('.brand-offer-card')];
+      const search = document.querySelector('.brand-offer-search');
+      const empty = document.querySelector('.brand-empty');
+      let activeFilter = 'all';
+      const applyFilters = () => {
+        const query = String(search.value || '').trim().toLowerCase();
+        let visible = 0;
+        cards.forEach((card) => {
+          const matchesType = activeFilter === 'all' || card.dataset.offerType === activeFilter;
+          const matchesSearch = !query || String(card.dataset.search || '').includes(query);
+          card.hidden = !(matchesType && matchesSearch);
+          if (!card.hidden) visible += 1;
+        });
+        empty.hidden = visible > 0;
+      };
+      document.querySelectorAll('.brand-filter').forEach((button) => button.addEventListener('click', () => {
+        activeFilter = button.dataset.filter || 'all';
+        document.querySelectorAll('.brand-filter').forEach((item) => item.classList.toggle('is-active', item === button));
+        applyFilters();
+      }));
+      search.addEventListener('input', applyFilters);
+      document.querySelectorAll('.brand-offer-action[data-code]').forEach((link) => link.addEventListener('click', () => {
+        const code = link.dataset.code;
+        if (code && navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+      }));
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -3959,6 +5347,179 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && url.pathname === "/api/offers") {
       sendJson(res, 200, readOffers());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/trustpilot-reviews") {
+      sendJson(res, 200, readTrustpilotReviews());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/site-settings") {
+      const settings = readSiteSettings();
+      sendJson(res, 200, {
+        siteName: settings.siteName, slogan: settings.slogan, homeTitle: settings.homeTitle,
+        homeDescription: settings.homeDescription, logoData: settings.logoData,
+        faviconData: settings.faviconData, seoTitle: settings.seoTitle,
+        seoDescription: settings.seoDescription, couponDescription: settings.couponDescription,
+        howToApply: settings.howToApply, menuItems: settings.menuItems,
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/settings") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, readSiteSettings());
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/settings") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const settings = sanitizeSiteSettings(JSON.parse(await readBody(req, 2_500_000)));
+      writeSiteSettings(settings);
+      sendJson(res, 200, settings);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/users") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, readAdminUsers());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/users") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req));
+      const email = normalizeEmail(payload.email);
+      const users = readAdminUsers();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Email không hợp lệ.");
+      if (users.some((user) => user.email === email)) throw new Error("Email đã tồn tại.");
+      const user = {
+        id: `user_${Date.now().toString(36)}_${crypto.randomBytes(3).toString("hex")}`,
+        name: String(payload.name || email.split("@")[0]).trim().slice(0, 100),
+        username: String(payload.username || email.split("@")[0]).trim().slice(0, 60),
+        email,
+        phone: String(payload.phone || "").trim().slice(0, 30),
+        role: ["Administrator", "Editor", "Viewer"].includes(payload.role) ? payload.role : "Editor",
+        status: "active",
+        createdAt: new Date().toISOString(),
+      };
+      writeAdminUsers([...users, user]);
+      sendJson(res, 201, user);
+      return;
+    }
+
+    const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (req.method === "DELETE" && adminUserMatch) {
+      const session = getAdminSession(req);
+      if (!session) return sendJson(res, 401, { error: "Admin login required." });
+      const users = readAdminUsers();
+      const userId = decodeURIComponent(adminUserMatch[1]);
+      const user = users.find((item) => item.id === userId);
+      if (!user) return sendJson(res, 404, { error: "Không tìm thấy user." });
+      if (user.email === session.email) return sendJson(res, 400, { error: "Không thể xóa tài khoản đang đăng nhập." });
+      writeAdminUsers(users.filter((item) => item.id !== userId));
+      sendJson(res, 200, user);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/projects") {
+      if (!isAuthenticated(req)) {
+        sendJson(res, 401, { error: "Admin login required." });
+        return;
+      }
+      sendJson(res, 200, readProjects());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/projects") {
+      if (!isAuthenticated(req)) {
+        sendJson(res, 401, { error: "Admin login required." });
+        return;
+      }
+      const payload = JSON.parse(await readBody(req, 12_000_000));
+      const { project, buffer } = sanitizeProjectUpload(payload);
+      fs.writeFileSync(path.join(projectUploadsDir, project.storedFileName), buffer);
+      writeProjects([project, ...readProjects()]);
+      sendJson(res, 201, project);
+      return;
+    }
+
+    const projectPreviewMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/preview$/);
+    if (req.method === "GET" && projectPreviewMatch) {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const project = readProjects().find((item) => item.id === decodeURIComponent(projectPreviewMatch[1]));
+      if (!project) return sendJson(res, 404, { error: "File not found." });
+      const filePath = path.join(projectUploadsDir, project.storedFileName);
+      if (!fs.existsSync(filePath)) return sendJson(res, 404, { error: "File content not found." });
+      const contentType = types[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+      send(res, 200, fs.readFileSync(filePath), contentType, { "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" });
+      return;
+    }
+
+    const projectDownloadMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/download$/);
+    if (req.method === "GET" && projectDownloadMatch) {
+      if (!isAuthenticated(req)) {
+        sendJson(res, 401, { error: "Admin login required." });
+        return;
+      }
+      const project = readProjects().find((item) => item.id === decodeURIComponent(projectDownloadMatch[1]));
+      if (!project) {
+        sendJson(res, 404, { error: "Project not found." });
+        return;
+      }
+      const filePath = path.join(projectUploadsDir, project.storedFileName);
+      if (!fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: "Project file not found." });
+        return;
+      }
+      const safeDownloadName = project.fileName.replace(/[\r\n"]/g, "_");
+      send(res, 200, fs.readFileSync(filePath), "application/octet-stream", {
+        "Content-Disposition": `attachment; filename="${safeDownloadName}"`,
+        "X-Content-Type-Options": "nosniff",
+      });
+      return;
+    }
+
+    const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+    if (req.method === "DELETE" && projectMatch) {
+      if (!isAuthenticated(req)) {
+        sendJson(res, 401, { error: "Admin login required." });
+        return;
+      }
+      const projectId = decodeURIComponent(projectMatch[1]);
+      const projects = readProjects();
+      const index = projects.findIndex((item) => item.id === projectId);
+      if (index === -1) {
+        sendJson(res, 404, { error: "Project not found." });
+        return;
+      }
+      const [deleted] = projects.splice(index, 1);
+      const filePath = path.join(projectUploadsDir, deleted.storedFileName);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      writeProjects(projects);
+      sendJson(res, 200, deleted);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/offers/batch") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req, 15_000_000));
+      const items = Array.isArray(payload) ? payload : payload.items;
+      const sharedLogo = Array.isArray(payload) ? "" : String(payload.sharedLogo || "");
+      if (!Array.isArray(items) || !items.length) throw new Error("Không có Deal để import.");
+      if (items.length > 500) throw new Error("Mỗi lần chỉ import tối đa 500 Deal.");
+      const created = [];
+      const errors = [];
+      items.forEach((item, index) => {
+        try {
+          created.push(sanitizeOffer({ ...item, type: item.type || "deal", logo: item.logo || sharedLogo }));
+        } catch (error) {
+          errors.push({ row: index + 2, title: String(item.title || item.name || ""), error: error.message });
+        }
+      });
+      if (created.length) writeOffers([...created, ...readOffers()]);
+      sendJson(res, errors.length ? 207 : 201, { created, errors, total: items.length });
       return;
     }
 

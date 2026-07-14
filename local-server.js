@@ -5496,6 +5496,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/newsletter/status") {
+      sendJson(res, 200, {
+        configured: Boolean(resendApiKey && resendFromEmail),
+        apiKeyPresent: Boolean(resendApiKey),
+        apiKeyFormatValid: /^re_[A-Za-z0-9_-]{20,}$/.test(resendApiKey),
+        fromEmailPresent: Boolean(resendFromEmail),
+        fromEmailFormatValid: /<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/.test(resendFromEmail),
+        siteUrlConfigured: Boolean(process.env.SITE_URL),
+        newsletterSecretConfigured: Boolean(process.env.NEWSLETTER_SECRET),
+      });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/newsletter/subscribe") {
       enforceNewsletterRateLimit(req);
       const payload = JSON.parse(await readBody(req, 20_000));

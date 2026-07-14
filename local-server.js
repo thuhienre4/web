@@ -2,6 +2,8 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const dns = require("dns").promises;
+const net = require("net");
 const { exec } = require("child_process");
 
 const root = __dirname;
@@ -2938,8 +2940,8 @@ function applyExtractedBrandLogos(offers) {
   return offers.map((offer) => ({
     ...offer,
     logo: offer.logo || manifest[getOfferLogoHost(offer)] || "",
-    landingImage: landingManifest[getOfferLogoHost(offer)] || "",
-    productImage: productManifest[offer.id] || "",
+    landingImage: offer.landingImage || landingManifest[getOfferLogoHost(offer)] || "",
+    productImage: offer.productImage || productManifest[offer.id] || "",
   }));
 }
 
@@ -3168,6 +3170,127 @@ function normalizeOfferDate(value, fallbackIndex = 0) {
 
 function createOfferId() {
   return `offer_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function isPrivateAddress(address) {
+  const normalized = String(address || "").toLowerCase().replace(/^::ffff:/, "");
+  if (net.isIPv4(normalized)) {
+    const parts = normalized.split(".").map(Number);
+    return parts[0] === 10 || parts[0] === 127 || parts[0] === 0 ||
+      (parts[0] === 169 && parts[1] === 254) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+      (parts[0] === 192 && parts[1] === 168) || parts[0] >= 224;
+  }
+  if (net.isIPv6(normalized)) {
+    return normalized === "::1" || normalized === "::" || normalized.startsWith("fc") ||
+      normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") ||
+      normalized.startsWith("fea") || normalized.startsWith("feb");
+  }
+  return true;
+}
+
+async function assertPublicUrl(value) {
+  const url = new URL(String(value || ""));
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Link must be a public http/https URL.");
+  const hostname = url.hostname.toLowerCase();
+  if (["localhost", "localhost.localdomain"].includes(hostname) || hostname.endsWith(".local")) throw new Error("Private links are not allowed.");
+  const addresses = net.isIP(hostname) ? [{ address: hostname }] : await dns.lookup(hostname, { all: true });
+  if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) throw new Error("Private links are not allowed.");
+  return url;
+}
+
+async function fetchPublicPage(value, redirectCount = 0) {
+  const url = await assertPublicUrl(value);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; AloCouponImportBot/1.0; +https://alocoupon.com)",
+        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+      },
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      if (redirectCount >= 5) throw new Error("Too many redirects.");
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Redirect did not include a destination.");
+      return fetchPublicPage(new URL(location, url).href, redirectCount + 1);
+    }
+    if (!response.ok) throw new Error(`Website returned HTTP ${response.status}.`);
+    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) throw new Error("The link did not return a website page.");
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > 2_500_000) throw new Error("Website page is too large to scan.");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 2_500_000) throw new Error("Website page is too large to scan.");
+    return { html: bytes.toString("utf8"), pageUrl: response.url || url.href };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function decodeImportedHtml(value) {
+  return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#(?:39|x27);/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
+}
+
+function readImportedAttribute(tag, name) {
+  const match = String(tag || "").match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return decodeImportedHtml(match?.[1] || match?.[2] || match?.[3] || "");
+}
+
+function resolveImportedImage(value, pageUrl) {
+  if (!value || String(value).startsWith("data:")) return "";
+  try {
+    const url = new URL(String(value).replace(/^\/\//, "https://"), pageUrl);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function discoverStoreAssets(html, pageUrl) {
+  const logos = [];
+  const products = [];
+  const add = (collection, value) => {
+    const resolved = resolveImportedImage(value, pageUrl);
+    if (resolved && !collection.includes(resolved)) collection.push(resolved);
+  };
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0];
+    const marker = (readImportedAttribute(tag, "property") || readImportedAttribute(tag, "name")).toLowerCase();
+    if (["og:logo", "twitter:logo"].includes(marker)) add(logos, readImportedAttribute(tag, "content"));
+    if (["og:image", "twitter:image", "twitter:image:src"].includes(marker)) add(products, readImportedAttribute(tag, "content"));
+  }
+  for (const match of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
+    const tag = match[0];
+    const marker = `${readImportedAttribute(tag, "class")} ${readImportedAttribute(tag, "id")} ${readImportedAttribute(tag, "alt")}`;
+    const srcset = readImportedAttribute(tag, "data-srcset") || readImportedAttribute(tag, "srcset");
+    const srcsetUrl = srcset ? srcset.split(",").at(-1)?.trim().split(/\s+/)[0] : "";
+    const source = srcsetUrl || readImportedAttribute(tag, "data-src") || readImportedAttribute(tag, "src");
+    if (/logo|site-brand|header-brand/i.test(marker) && !/payment|partner|client/i.test(marker)) add(logos, source);
+    if (/product|product-card|collection-item|grid-product/i.test(marker) && !/logo|icon|placeholder/i.test(marker)) add(products, source);
+  }
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (/icon/i.test(readImportedAttribute(tag, "rel"))) add(logos, readImportedAttribute(tag, "href"));
+  }
+  for (const pattern of [/"logo"\s*:\s*"([^"]+)"/gi, /"image"\s*:\s*"([^"]+)"/gi]) {
+    for (const match of html.matchAll(pattern)) add(pattern.source.includes("logo") ? logos : products, match[1].replace(/\\\//g, "/"));
+  }
+  return { logo: logos[0] || "", productImage: products.find((url) => !/logo|favicon|icon|avatar|payment/i.test(url)) || "" };
+}
+
+async function extractStoreAssets(value) {
+  const { html, pageUrl } = await fetchPublicPage(value);
+  const assets = discoverStoreAssets(html, pageUrl);
+  const finalHost = new URL(pageUrl).hostname.toLowerCase().replace(/^www\./, "");
+  return {
+    ...assets,
+    logo: assets.logo || `https://www.google.com/s2/favicons?domain=${encodeURIComponent(finalHost)}&sz=256`,
+    sourceUrl: pageUrl,
+    host: finalHost,
+  };
 }
 
 function createNewsletterToken(subscriberOrId, purpose) {
@@ -3624,18 +3747,18 @@ function normalizeOffers(offers) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-function sanitizeBrandLogo(value) {
-  const logo = String(value || "").trim();
-  if (!logo) return "";
-  if (/^\/assets\/brand-logos\/[a-z0-9._-]+$/i.test(logo)) return logo;
-
-  const match = logo.match(/^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i);
-  if (!match) throw new Error("Logo must be a PNG, JPG, WEBP, or GIF image.");
-
+function sanitizeOfferImage(value, label = "Image", maxBytes = 800 * 1024) {
+  const image = String(value || "").trim();
+  if (!image) return "";
+  if (/^\/assets\/(?:brand-logos|product-images|brand-landings)\/[a-z0-9._-]+$/i.test(image)) return image;
+  try {
+    const url = new URL(image);
+    if (url.protocol === "https:" && !url.username && !url.password) return url.href;
+  } catch {}
+  const match = image.match(/^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i);
+  if (!match) throw new Error(`${label} must be an HTTPS URL or a PNG, JPG, WEBP, or GIF image.`);
   const byteLength = Buffer.from(match[2], "base64").length;
-  if (!byteLength || byteLength > 500 * 1024) {
-    throw new Error("Deal logo must be 500 KB or smaller.");
-  }
+  if (!byteLength || byteLength > maxBytes) throw new Error(`${label} must be ${Math.round(maxBytes / 1024)} KB or smaller.`);
   return `data:image/${match[1].toLowerCase()};base64,${match[2]}`;
 }
 
@@ -3651,7 +3774,8 @@ function sanitizeOffer(input) {
     category: String(input.category || "").trim(),
     expiry: String(input.expiry || "").trim(),
     review: String(input.review || "").trim(),
-    logo: sanitizeBrandLogo(input.logo),
+    logo: sanitizeOfferImage(input.logo, "Logo"),
+    productImage: sanitizeOfferImage(input.productImage, "Product image", 1_500 * 1024),
     slug: slugify(input.slug || input.title),
     order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
     visible: input.visible !== false && String(input.visible).toLowerCase() !== "false",
@@ -3833,15 +3957,20 @@ function adminPage(adminEmail = "") {
         </section>
 
         <section class="cms-panel coupon-manager-panel" data-admin-panel="bulk-offer-import" hidden>
-          <div class="cms-page-heading"><div><h1>Upload hàng loạt Deal & Coupon</h1><p>Chọn nhiều file CSV hoặc JSON từ nhiều dự án và đăng dữ liệu thật lên website trong một lần.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Upload Deal & Coupon</strong></div></div>
+          <div class="cms-page-heading"><div><h1>Upload hàng loạt Deal & Coupon</h1><p>Nhập tối đa 500 dòng, kiểm tra trước và tự lấy logo/ảnh sản phẩm từ website cửa hàng.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Upload Deal & Coupon</strong></div></div>
           <details class="bulk-deal-import" open>
             <summary>⇧ Chọn file Deal / Coupon (CSV / JSON)</summary>
             <form id="bulk-deal-import-form">
               <label>Các file dữ liệu <input id="bulk-deal-file" type="file" accept=".csv,.json,text/csv,application/json" multiple required /></label>
               <small>Bạn có thể giữ Ctrl/Shift để chọn nhiều file. Tổng cộng tối đa 500 dòng mỗi lần.</small>
               <label>Logo chung (không bắt buộc) <input id="bulk-deal-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
-              <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu Deal & Coupon</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="submit">Upload tất cả</button></div>
-              <p id="bulk-deal-result">Cột type dùng “deal” hoặc “coupon”. Nếu có code, hệ thống tự nhận là Coupon.</p>
+              <label class="bulk-auto-assets"><input id="bulk-auto-assets" type="checkbox" checked /> <span><strong>Tự động lấy logo và ảnh sản phẩm</strong><small>Hệ thống theo affiliate link đến trang cửa hàng và chỉ quét các website công khai.</small></span></label>
+              <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu</button><button class="cms-btn cms-btn-info" id="preview-bulk-deals" type="submit">1. Xem trước & lấy ảnh</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="button" disabled>2. Đăng dữ liệu hợp lệ</button></div>
+              <p id="bulk-deal-result">Chọn file rồi bấm “Xem trước & lấy ảnh”. Dòng trùng hoặc thiếu dữ liệu sẽ không được đăng.</p>
+              <div class="bulk-preview" id="bulk-preview" hidden>
+                <div class="bulk-preview-summary" id="bulk-preview-summary"></div>
+                <div class="bulk-preview-table-wrap"><table class="bulk-preview-table"><thead><tr><th>#</th><th>Ảnh</th><th>Deal / Coupon</th><th>Store</th><th>Loại</th><th>Trạng thái</th></tr></thead><tbody id="bulk-preview-body"></tbody></table></div>
+              </div>
             </form>
           </details>
         </section>
@@ -4109,6 +4238,13 @@ function adminPage(adminEmail = "") {
     const bulkDealFileInput = document.querySelector("#bulk-deal-file");
     const bulkDealLogoInput = document.querySelector("#bulk-deal-logo");
     const bulkDealResult = document.querySelector("#bulk-deal-result");
+    const bulkAutoAssetsInput = document.querySelector("#bulk-auto-assets");
+    const bulkPreview = document.querySelector("#bulk-preview");
+    const bulkPreviewSummary = document.querySelector("#bulk-preview-summary");
+    const bulkPreviewBody = document.querySelector("#bulk-preview-body");
+    const previewBulkDealsButton = document.querySelector("#preview-bulk-deals");
+    const runBulkDealImportButton = document.querySelector("#run-bulk-deal-import");
+    let preparedBulkDeals = [];
     const dealCreateForm = document.querySelector("#deal-create-form");
     const dealCreateImageInput = document.querySelector("#deal-create-image");
     const dealCreatePreviewRow = document.querySelector("#deal-create-preview-row");
@@ -4342,46 +4478,94 @@ function adminPage(adminEmail = "") {
       URL.revokeObjectURL(url);
     });
 
+    async function readBulkDealFiles() {
+      const dataFiles = Array.from(bulkDealFileInput.files || []);
+      if (!dataFiles.length) throw new Error("Chọn một hoặc nhiều file CSV/JSON.");
+      if (dataFiles.some((file) => file.size > 5 * 1024 * 1024)) throw new Error("Mỗi file dữ liệu phải nhỏ hơn 5 MB.");
+      const rawItems = [];
+      for (let fileIndex = 0; fileIndex < dataFiles.length; fileIndex += 1) {
+        const dataFile = dataFiles[fileIndex];
+        previewBulkDealsButton.textContent = "Đang đọc file " + (fileIndex + 1) + "/" + dataFiles.length + "...";
+        const text = await dataFile.text();
+        const parsed = dataFile.name.toLowerCase().endsWith(".json") ? JSON.parse(text) : parseBulkDealCsv(text);
+        const fileItems = Array.isArray(parsed) ? parsed : parsed.items;
+        if (!Array.isArray(fileItems)) throw new Error("File " + dataFile.name + " không đúng định dạng.");
+        fileItems.forEach((item) => rawItems.push({ ...item, source_file: dataFile.name }));
+      }
+      if (!rawItems.length) throw new Error("Các file không có dòng Deal/Coupon hợp lệ.");
+      if (rawItems.length > 500) throw new Error("Tổng cộng tối đa 500 Deal/Coupon trong một lần import.");
+      const sharedLogoFile = bulkDealLogoInput.files[0];
+      const sharedLogo = sharedLogoFile ? await readLogoFile(sharedLogoFile) : "";
+      return rawItems.map(normalizeBulkDealRow).map((item) => ({ ...item, logo: item.logo || sharedLogo }));
+    }
+
+    function renderBulkDealPreview(result) {
+      const validRows = result.items || [];
+      const issueRows = [...(result.errors || []), ...(result.duplicates || [])];
+      bulkPreview.hidden = false;
+      bulkPreviewSummary.innerHTML = '<strong>' + validRows.length + ' dòng sẵn sàng</strong><span>' + Number(result.extractedCount || 0) + ' dòng có ảnh tự động</span><span>' + issueRows.length + ' dòng bị bỏ qua</span>';
+      const validHtml = validRows.slice(0, 200).map((item, index) => {
+        const image = item.productImage || item.logo || "";
+        return '<tr><td>' + (index + 1) + '</td><td>' + (image ? '<img src="' + escapeHtml(image) + '" alt="" />' : '—') + '</td><td><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.discount || "") + '</small></td><td>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '">' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok">Hợp lệ</span></td></tr>';
+      }).join("");
+      const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td></tr>').join("");
+      bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="6">Không có dữ liệu hợp lệ.</td></tr>';
+      preparedBulkDeals = validRows;
+      runBulkDealImportButton.disabled = !preparedBulkDeals.length;
+    }
+
     bulkDealImportForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const dataFiles = Array.from(bulkDealFileInput.files || []);
-      if (!dataFiles.length) return showToast("Chọn một hoặc nhiều file CSV/JSON.");
-      if (dataFiles.some((file) => file.size > 5 * 1024 * 1024)) return showToast("Mỗi file dữ liệu phải nhỏ hơn 5 MB.");
-      const submitButton = document.querySelector("#run-bulk-deal-import");
       try {
-        submitButton.disabled = true;
-        const rawItems = [];
-        for (let fileIndex = 0; fileIndex < dataFiles.length; fileIndex += 1) {
-          const dataFile = dataFiles[fileIndex];
-          submitButton.textContent = "Đang đọc file " + (fileIndex + 1) + "/" + dataFiles.length + "...";
-          const text = await dataFile.text();
-          const parsed = dataFile.name.toLowerCase().endsWith(".json") ? JSON.parse(text) : parseBulkDealCsv(text);
-          const fileItems = Array.isArray(parsed) ? parsed : parsed.items;
-          if (!Array.isArray(fileItems)) throw new Error("File " + dataFile.name + " không đúng định dạng.");
-          fileItems.forEach((item) => rawItems.push({ ...item, source_file: dataFile.name }));
-        }
-        if (!rawItems.length) throw new Error("Các file không có dòng Deal/Coupon hợp lệ.");
-        if (rawItems.length > 500) throw new Error("Tổng cộng tối đa 500 Deal/Coupon trong một lần import.");
-        const sharedLogoFile = bulkDealLogoInput.files[0];
-        const sharedLogo = sharedLogoFile ? await readLogoFile(sharedLogoFile) : "";
-        submitButton.textContent = "Đang upload " + rawItems.length + " dòng...";
-        const res = await fetch("/api/offers/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: rawItems.map(normalizeBulkDealRow), sharedLogo }) });
+        previewBulkDealsButton.disabled = true;
+        runBulkDealImportButton.disabled = true;
+        preparedBulkDeals = [];
+        const items = await readBulkDealFiles();
+        previewBulkDealsButton.textContent = bulkAutoAssetsInput.checked ? "Đang quét website & lấy ảnh..." : "Đang kiểm tra dữ liệu...";
+        const res = await fetch("/api/offers/batch/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, autoExtract: bulkAutoAssetsInput.checked }) });
         const result = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(result.error || "Import thất bại.");
-        await loadOffers();
-        bulkDealImportForm.reset();
-        const errorText = (result.errors || []).slice(0, 5).map((item) => "Dòng " + item.row + ": " + item.error).join(" | ");
-        const couponCount = result.created.filter((item) => item.type === "code").length;
-        const dealCount = result.created.length - couponCount;
-        bulkDealResult.textContent = "Đã đăng " + result.created.length + "/" + result.total + " dòng: " + dealCount + " Deal, " + couponCount + " Coupon." + (errorText ? " Lỗi: " + errorText : "");
-        showToast("Đã đăng " + result.created.length + " Deal/Coupon lên website.");
+        if (!res.ok) throw new Error(result.error || "Không thể xem trước dữ liệu.");
+        renderBulkDealPreview(result);
+        bulkDealResult.textContent = "Đã kiểm tra " + result.total + " dòng. Hãy xem bảng bên dưới rồi bấm Đăng dữ liệu hợp lệ.";
+        showToast("Đã chuẩn bị " + preparedBulkDeals.length + " Deal/Coupon hợp lệ.");
       } catch (error) {
         bulkDealResult.textContent = error.message;
         showToast(error.message);
       } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = "Upload tất cả";
+        previewBulkDealsButton.disabled = false;
+        previewBulkDealsButton.textContent = "1. Xem trước & lấy ảnh";
       }
+    });
+
+    runBulkDealImportButton.addEventListener("click", async () => {
+      if (!preparedBulkDeals.length) return showToast("Hãy xem trước dữ liệu trước khi đăng.");
+      try {
+        runBulkDealImportButton.disabled = true;
+        runBulkDealImportButton.textContent = "Đang đăng " + preparedBulkDeals.length + " dòng...";
+        const res = await fetch("/api/offers/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: preparedBulkDeals }) });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(result.error || "Import thất bại.");
+        await loadOffers();
+        const couponCount = result.created.filter((item) => item.type === "code").length;
+        const dealCount = result.created.length - couponCount;
+        bulkDealResult.textContent = "Đã đăng " + result.created.length + " dòng: " + dealCount + " Deal, " + couponCount + " Coupon.";
+        showToast("Đã đăng thành công " + result.created.length + " Deal/Coupon.");
+        preparedBulkDeals = [];
+        bulkDealImportForm.reset();
+        bulkPreview.hidden = true;
+      } catch (error) {
+        bulkDealResult.textContent = error.message;
+        showToast(error.message);
+      } finally {
+        runBulkDealImportButton.textContent = "2. Đăng dữ liệu hợp lệ";
+        runBulkDealImportButton.disabled = !preparedBulkDeals.length;
+      }
+    });
+
+    bulkDealFileInput.addEventListener("change", () => {
+      preparedBulkDeals = [];
+      runBulkDealImportButton.disabled = true;
+      bulkPreview.hidden = true;
     });
 
     function updateCouponSelectionCounts() {
@@ -5458,6 +5642,83 @@ function storePage(group) {
 </html>`;
 }
 
+function getOfferDuplicateKey(offer) {
+  let link = String(offer.link || "").trim().toLowerCase();
+  try {
+    const url = new URL(link);
+    url.hash = "";
+    link = `${url.hostname.toLowerCase()}${url.pathname.replace(/\/+$/, "")}${url.search}`;
+  } catch {}
+  return [String(offer.brand || "").trim().toLowerCase(), String(offer.code || "").trim().toUpperCase(), String(offer.title || "").trim().toLowerCase(), link].join("|");
+}
+
+async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
+  const items = rawItems.map((item) => ({ ...item }));
+  const extractionCache = new Map();
+  const extractionJobs = new Map();
+  if (autoExtract) {
+    items.forEach((item) => {
+      if ((item.logo && item.productImage) || !item.link) return;
+      let host = "";
+      try { host = new URL(item.link).hostname.toLowerCase(); } catch {}
+      const key = `${String(item.brand || "").trim().toLowerCase()}|${host}`;
+      if (!extractionJobs.has(key)) extractionJobs.set(key, item.link);
+    });
+    const jobs = Array.from(extractionJobs.entries()).slice(0, 40);
+    let cursor = 0;
+    async function worker() {
+      while (cursor < jobs.length) {
+        const [key, link] = jobs[cursor++];
+        try {
+          extractionCache.set(key, { ...(await extractStoreAssets(link)), error: "" });
+        } catch (error) {
+          extractionCache.set(key, { logo: "", productImage: "", error: error.message || "Could not scan website." });
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+    items.forEach((item) => {
+      let host = "";
+      try { host = new URL(item.link).hostname.toLowerCase(); } catch {}
+      const assets = extractionCache.get(`${String(item.brand || "").trim().toLowerCase()}|${host}`);
+      if (assets) {
+        item.logo ||= assets.logo;
+        item.productImage ||= assets.productImage;
+        item.assetSourceUrl = assets.sourceUrl || "";
+        item.assetWarning = assets.error || "";
+      }
+    });
+  }
+
+  const existingKeys = new Set(readOffers().map(getOfferDuplicateKey));
+  const batchKeys = new Set();
+  const ready = [];
+  const errors = [];
+  const duplicates = [];
+  items.forEach((item, index) => {
+    try {
+      const offer = sanitizeOffer(item);
+      const key = getOfferDuplicateKey(offer);
+      if (existingKeys.has(key) || batchKeys.has(key)) {
+        duplicates.push({ row: index + 2, title: offer.title, error: "Duplicate offer was skipped." });
+        return;
+      }
+      batchKeys.add(key);
+      ready.push(offer);
+    } catch (error) {
+      const warning = item.assetWarning || "";
+      errors.push({ row: index + 2, title: String(item.title || item.name || ""), error: warning ? `${error.message} Auto image: ${warning}` : error.message });
+    }
+  });
+  return {
+    items: ready,
+    errors,
+    duplicates,
+    total: items.length,
+    extractedCount: items.filter((item) => item.logo && (item.assetSourceUrl || item.productImage)).length,
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
@@ -5764,27 +6025,32 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/offers/batch/preview") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const payload = JSON.parse(await readBody(req, 15_000_000));
+      const items = Array.isArray(payload) ? payload : payload.items;
+      if (!Array.isArray(items) || !items.length) throw new Error("Không có Deal/Coupon để xem trước.");
+      if (items.length > 500) throw new Error("Mỗi lần chỉ xử lý tối đa 500 Deal/Coupon.");
+      const prepared = await prepareBatchOffers(items, { autoExtract: payload.autoExtract !== false });
+      sendJson(res, 200, prepared);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/offers/batch") {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
       const payload = JSON.parse(await readBody(req, 15_000_000));
       const items = Array.isArray(payload) ? payload : payload.items;
       const sharedLogo = Array.isArray(payload) ? "" : String(payload.sharedLogo || "");
-      if (!Array.isArray(items) || !items.length) throw new Error("Không có Deal để import.");
-      if (items.length > 500) throw new Error("Mỗi lần chỉ import tối đa 500 Deal.");
-      const created = [];
-      const errors = [];
-      items.forEach((item, index) => {
-        try {
-          created.push(sanitizeOffer({ ...item, type: item.type || "deal", logo: item.logo || sharedLogo }));
-        } catch (error) {
-          errors.push({ row: index + 2, title: String(item.title || item.name || ""), error: error.message });
-        }
-      });
+      if (!Array.isArray(items) || !items.length) throw new Error("Không có Deal/Coupon để import.");
+      if (items.length > 500) throw new Error("Mỗi lần chỉ import tối đa 500 Deal/Coupon.");
+      const prepared = await prepareBatchOffers(items.map((item) => ({ ...item, type: item.type || "deal", logo: item.logo || sharedLogo })), { autoExtract: payload.autoExtract === true });
+      const created = prepared.items;
+      const errors = [...prepared.errors, ...prepared.duplicates];
       if (created.length) {
         writeOffers([...created, ...readOffers()]);
         void notifySubscribersOfOffers(created);
       }
-      sendJson(res, errors.length ? 207 : 201, { created, errors, total: items.length });
+      sendJson(res, errors.length ? 207 : 201, { created, errors, duplicates: prepared.duplicates, total: items.length });
       return;
     }
 

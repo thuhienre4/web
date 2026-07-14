@@ -4388,8 +4388,60 @@ body:not(.admin-mode) #deals .section-title {
 
 .bulk-deal-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
+
+.bulk-deal-import .bulk-auto-assets {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #eef7ff;
+  border: 1px solid #cce5ff;
+  border-radius: 6px;
+}
+
+.bulk-auto-assets input { margin-top: 3px; }
+.bulk-auto-assets span { display: grid; gap: 3px; }
+.bulk-auto-assets small { color: #617180; font-weight: 500; }
+
+.bulk-preview {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border: 1px solid #d9e2e8;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.bulk-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 12px 14px;
+  background: #f7fafc;
+  color: #4b5c68;
+  font-size: 0.86rem;
+}
+
+.bulk-preview-summary strong { color: #137849; }
+.bulk-preview-table-wrap { max-height: 520px; overflow: auto; }
+.bulk-preview-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.bulk-preview-table th { position: sticky; top: 0; z-index: 1; background: #253342; color: #fff; text-align: left; }
+.bulk-preview-table th,
+.bulk-preview-table td { padding: 10px; border-bottom: 1px solid #e6ebef; vertical-align: middle; }
+.bulk-preview-table td img { width: 64px; height: 48px; object-fit: contain; background: #fff; border: 1px solid #e1e7eb; border-radius: 5px; }
+.bulk-preview-table td strong,
+.bulk-preview-table td small { display: block; }
+.bulk-preview-table td small { margin-top: 3px; color: #73808a; }
+.bulk-preview-table tr.has-error { background: #fff7f7; }
+.bulk-type,
+.bulk-status { display: inline-block; padding: 4px 7px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; white-space: nowrap; }
+.bulk-type { background: #edf2ff; color: #315fc5; }
+.bulk-type.code { background: #fff3df; color: #a76200; }
+.bulk-status.ok { background: #e6f7ed; color: #137849; }
+.bulk-status.error { max-width: 260px; white-space: normal; background: #ffe9e9; color: #b32d2d; }
 
 #bulk-deal-result {
   grid-column: 1 / -1;

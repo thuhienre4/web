@@ -132,7 +132,7 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="styles.css?v=20260715-1" />
+    <link rel="stylesheet" href="styles.css?v=20260715-2" />
   </head>
   <body>
     <a class="skip-link" href="#home">Skip to main content</a>
@@ -462,11 +462,22 @@
 
       <section class="section container reveal" id="stores">
         <div class="section-title">
-          <h2 data-i18n="stores.title">Popular Stores</h2>
+          <h2 data-i18n="stores.title">All Stores</h2>
           <a href="#deals" data-i18n="stores.link">View All Deals</a>
         </div>
         <p class="section-intro" data-i18n="stores.intro">Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.</p>
-        <div class="store-grid" id="popular-store-grid">
+        <div class="store-directory-toolbar">
+          <label class="store-directory-search" for="store-search-input">
+            <span>Find a store</span>
+            <input id="store-search-input" type="search" placeholder="Search store name or domain..." autocomplete="off" />
+          </label>
+          <p class="store-directory-summary" aria-live="polite">
+            <strong id="store-visible-count">0</strong> of <strong id="store-total-count">0</strong> stores
+            <span aria-hidden="true">•</span>
+            <span><strong id="store-offer-total">0</strong> active offers</span>
+          </p>
+        </div>
+        <div class="store-grid" id="popular-store-grid" aria-label="Store directory">
           <article class="store-card">
             <div class="store-logo">FC</div>
             <h3>Fortress Clothing</h3>
@@ -499,6 +510,10 @@
             <div class="store-logo coral">JB</div>
             <h3>Jennibag</h3>
           </article>
+        </div>
+        <p class="store-directory-empty" id="store-directory-empty" hidden>No stores match your search.</p>
+        <div class="store-directory-actions">
+          <button class="store-show-all" id="store-show-all" type="button" aria-controls="popular-store-grid">Show all stores</button>
         </div>
       </section>
 
@@ -631,6 +646,6 @@
     <div class="toast" role="status" aria-live="polite"></div>
     <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
     <noscript><p class="noscript-note">Enable JavaScript to load the latest verified coupon and deal data.</p></noscript>
-    <script src="script.js?v=20260715-1" defer></script>
+    <script src="script.js?v=20260715-2" defer></script>
   </body>
 </html>

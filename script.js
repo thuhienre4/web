@@ -22,7 +22,7 @@ const translations = {
     "hero.copy": "Discover verified affiliate offers, featured stores, product reviews, and limited-time coupon codes for software, AI tools, ecommerce products, fashion, food, electronics, and more.",
     "hero.primary": "Browse Today's Deals",
     "hero.secondary": "Explore Stores",
-    "stores.title": "Popular Stores",
+    "stores.title": "All Stores",
     "stores.link": "View All Deals",
     "stores.intro": "Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.",
     "deals.title": "Deals Of Today",
@@ -102,7 +102,7 @@ const translations = {
     "hero.copy": "Découvrez des offres d'affiliation vérifiées, des boutiques mises en avant, des avis produits et des codes promo limités pour les logiciels, les outils IA, l'ecommerce, la mode, l'alimentation, l'électronique et plus encore.",
     "hero.primary": "Voir les offres du jour",
     "hero.secondary": "Explorer les boutiques",
-    "stores.title": "Boutiques populaires",
+    "stores.title": "Toutes les boutiques",
     "stores.link": "Voir toutes les offres",
     "stores.intro": "Explorez les boutiques et marques avec des campagnes d'affiliation actives, des remises produits et des opportunités de coupons.",
     "deals.title": "Offres du jour",
@@ -182,7 +182,7 @@ const translations = {
     "hero.copy": "Descubra ofertas de afiliados verificadas, lojas em destaque, avaliações de produtos e códigos promocionais por tempo limitado para software, ferramentas de IA, ecommerce, moda, alimentação, eletrônicos e muito mais.",
     "hero.primary": "Ver ofertas de hoje",
     "hero.secondary": "Explorar lojas",
-    "stores.title": "Lojas populares",
+    "stores.title": "Todas as lojas",
     "stores.link": "Ver todas as ofertas",
     "stores.intro": "Explore lojas e marcas com campanhas de afiliados ativas, descontos em produtos e oportunidades de cupons.",
     "deals.title": "Ofertas de hoje",
@@ -4171,18 +4171,28 @@ function renderDealPagination(matchedDeals) {
 function renderPopularStores(items) {
   const grid = document.querySelector("#popular-store-grid");
   if (!grid) return;
+  const searchInput = document.querySelector("#store-search-input");
+  const visibleCount = document.querySelector("#store-visible-count");
+  const totalCount = document.querySelector("#store-total-count");
+  const offerTotal = document.querySelector("#store-offer-total");
+  const emptyState = document.querySelector("#store-directory-empty");
+  const showAllButton = document.querySelector("#store-show-all");
   const stores = new Map();
   items.forEach((item) => {
     const brand = getOfferBrandName(item);
-    const key = brand.trim().toLowerCase();
+    const key = normalizeStoreKey(item.brand || brand);
     if (!key) return;
     if (!stores.has(key)) stores.set(key, { brand, items: [], item });
     const store = stores.get(key);
     store.items.push(item);
     if (!store.item.logo && item.logo) store.item = item;
   });
-  const popular = Array.from(stores.values()).slice(0, 15);
-  grid.innerHTML = popular.map(({ brand, item, items: storeItems }) => {
+  const directoryStores = Array.from(stores.values()).sort((a, b) => {
+    return b.items.length - a.items.length || a.brand.localeCompare(b.brand);
+  });
+  const totalOffers = directoryStores.reduce((sum, store) => sum + store.items.length, 0);
+  grid.setAttribute("aria-busy", "true");
+  grid.innerHTML = directoryStores.map(({ brand, item, items: storeItems }) => {
     const initials = escapeHtml(getStoreInitials(brand));
     const domain = getAffiliateDomain(item.link);
     const favicon = getAffiliateFaviconUrl(item.link);
@@ -4194,8 +4204,9 @@ function renderPopularStores(items) {
     const offerCount = storeItems.length;
     const bestOffer = escapeHtml(getBestOffer(storeItems));
     const offerLabel = `${offerCount} ${offerCount === 1 ? "offer" : "offers"}`;
+    const searchValue = escapeHtml(normalizeDealSearch(`${brand} ${domain}`));
     return `
-      <a class="store-card" href="/store/${encodeURIComponent(slug)}" aria-label="View ${escapeHtml(brand)} coupons and deals">
+      <a class="store-card" href="/store/${encodeURIComponent(slug)}" data-store-search="${searchValue}" aria-label="View ${escapeHtml(brand)} coupons and deals">
         <div class="store-card-top">
           <div class="store-logo dynamic-store-logo">${logo}</div>
           <span class="store-offer-count">${offerLabel}</span>
@@ -4210,6 +4221,44 @@ function renderPopularStores(items) {
         </div>
       </a>`;
   }).join("");
+  grid.setAttribute("aria-busy", "false");
+
+  if (totalCount) totalCount.textContent = String(directoryStores.length);
+  if (offerTotal) offerTotal.textContent = String(totalOffers);
+
+  const initialStoreLimit = 18;
+  let showAllStores = false;
+
+  const updateStoreDirectory = () => {
+    const query = normalizeDealSearch(searchInput?.value || "");
+    const cards = Array.from(grid.querySelectorAll(".store-card"));
+    const matches = cards.filter((card) => !query || card.dataset.storeSearch.includes(query));
+    const displayLimit = query || showAllStores ? matches.length : initialStoreLimit;
+    const visibleCards = new Set(matches.slice(0, displayLimit));
+    cards.forEach((card) => {
+      card.hidden = !visibleCards.has(card);
+    });
+    if (visibleCount) visibleCount.textContent = String(visibleCards.size);
+    if (emptyState) emptyState.hidden = matches.length > 0;
+    if (showAllButton) {
+      showAllButton.hidden = Boolean(query) || directoryStores.length <= initialStoreLimit;
+      showAllButton.textContent = showAllStores
+        ? "Show fewer stores"
+        : `Show all ${directoryStores.length} stores`;
+      showAllButton.setAttribute("aria-expanded", String(showAllStores));
+    }
+  };
+
+  if (searchInput) {
+    searchInput.oninput = updateStoreDirectory;
+  }
+  if (showAllButton) {
+    showAllButton.onclick = () => {
+      showAllStores = !showAllStores;
+      updateStoreDirectory();
+      if (!showAllStores) document.querySelector("#stores .section-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+  }
 
   grid.querySelectorAll(".dynamic-store-logo img").forEach((image) => {
     image.addEventListener("error", () => {
@@ -4223,6 +4272,7 @@ function renderPopularStores(items) {
       image.nextElementSibling?.classList.add("is-visible");
     });
   });
+  updateStoreDirectory();
 }
 
 dealSearchInputEl?.addEventListener("input", (event) => {

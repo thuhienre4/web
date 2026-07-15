@@ -3591,7 +3591,7 @@ function createUploadedDealCard(item, index) {
   const review = escapeHtml(getOfferSummary(item));
   const dealImage = item.productImage || item.logo;
   const logo = dealImage
-    ? `<img class="deal-product-logo" src="${escapeHtml(dealImage)}" alt="${brand}" />`
+    ? `<img class="deal-product-logo" src="${escapeHtml(dealImage)}" alt="${brand}" loading="lazy" decoding="async" />`
     : `<span class="deal-product-placeholder"><strong>${initials}</strong><small>${brand}</small></span>`;
   const buttonLabel = getOfferButtonLabel(item);
   const mediaClasses = ["", "green", "amber"];
@@ -3684,7 +3684,7 @@ function getBrandMark(item, initials, small = false) {
   const isSafeLogo = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/]+=*$/i.test(logo)
     || /^\/assets\/brand-logos\/[a-z0-9._-]+$/i.test(logo);
   if (isSafeLogo) {
-    return `<img class="brand-logo${small ? " small" : ""}" src="${logo}" alt="" loading="lazy" />`;
+    return `<img class="brand-logo${small ? " small" : ""}" src="${logo}" alt="" loading="lazy" decoding="async" />`;
   }
   return `<span class="brand-initials${small ? " small" : ""}">${initials}</span>`;
 }
@@ -4005,6 +4005,8 @@ function renderFeaturePost(items) {
   if (image) {
     image.src = imageSource;
     image.alt = `${brand} featured deal`;
+    image.loading = "lazy";
+    image.decoding = "async";
   }
   if (heading) heading.textContent = title;
   if (copy) copy.textContent = summary;
@@ -4090,6 +4092,8 @@ function renderLandingHero(items) {
     if (image) {
       image.src = source;
       image.alt = `${brand} product deal`;
+      image.decoding = "async";
+      image.fetchPriority = "high";
     }
     if (label) label.textContent = `${brand} · ALOCOUPON PICK`;
     if (title) title.textContent = getDisplayOfferTitle(item);
@@ -4184,7 +4188,7 @@ function renderPopularStores(items) {
     const favicon = getAffiliateFaviconUrl(item.link);
     const logoSource = String(item.logo || favicon || "");
     const logo = logoSource
-      ? `<img src="${escapeHtml(logoSource)}" data-favicon="${escapeHtml(favicon)}" alt="${escapeHtml(brand)} logo" loading="lazy" /><span class="store-logo-fallback" aria-hidden="true">${initials}</span>`
+      ? `<img src="${escapeHtml(logoSource)}" data-favicon="${escapeHtml(favicon)}" alt="${escapeHtml(brand)} logo" loading="lazy" decoding="async" /><span class="store-logo-fallback" aria-hidden="true">${initials}</span>`
       : `<span class="store-logo-fallback is-visible" aria-hidden="true">${initials}</span>`;
     const slug = slugify(brand) || "store";
     const offerCount = storeItems.length;
@@ -4331,6 +4335,10 @@ document.addEventListener("keydown", (event) => {
 
 const revealItems = document.querySelectorAll(".reveal");
 
+revealItems.forEach((item, index) => {
+  item.style.setProperty("--reveal-delay", `${Math.min(index % 5, 4) * 45}ms`);
+});
+
 if ("IntersectionObserver" in window) {
   const revealObserver = new IntersectionObserver(
     (entries) => {
@@ -4348,6 +4356,32 @@ if ("IntersectionObserver" in window) {
 } else {
   revealItems.forEach((item) => item.classList.add("is-visible"));
 }
+
+const scrollProgressBar = document.querySelector(".scroll-progress span");
+const backToTopButton = document.querySelector(".back-to-top");
+let scrollFramePending = false;
+
+function updatePageScrollUi() {
+  const scrollTop = window.scrollY || document.documentElement.scrollTop;
+  const scrollRange = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  if (scrollProgressBar) {
+    scrollProgressBar.style.transform = `scaleX(${Math.min(1, Math.max(0, scrollTop / scrollRange))})`;
+  }
+  backToTopButton?.classList.toggle("is-visible", scrollTop > 520);
+  scrollFramePending = false;
+}
+
+window.addEventListener("scroll", () => {
+  if (scrollFramePending) return;
+  scrollFramePending = true;
+  window.requestAnimationFrame(updatePageScrollUi);
+}, { passive: true });
+
+backToTopButton?.addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+updatePageScrollUi();
 
 const newsletterForm = document.querySelector("#newsletter-form");
 const newsletterStatus = document.querySelector("#newsletter-status");
@@ -4396,9 +4430,17 @@ async function applyPublicSiteSettings() {
     const response = await fetch("/api/site-settings", { headers: { Accept: "application/json" } });
     if (!response.ok) return;
     const settings = await response.json();
-    if (settings.seoTitle) document.title = settings.seoTitle;
+    if (settings.seoTitle) {
+      document.title = settings.seoTitle;
+      document.querySelector('meta[property="og:title"]')?.setAttribute("content", settings.seoTitle);
+      document.querySelector('meta[name="twitter:title"]')?.setAttribute("content", settings.seoTitle);
+    }
     const metaDescription = document.querySelector('meta[name="description"]');
-    if (metaDescription && settings.seoDescription) metaDescription.content = settings.seoDescription;
+    if (metaDescription && settings.seoDescription) {
+      metaDescription.content = settings.seoDescription;
+      document.querySelector('meta[property="og:description"]')?.setAttribute("content", settings.seoDescription);
+      document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", settings.seoDescription);
+    }
     const heroTitle = document.querySelector("#home h1");
     const heroDescription = document.querySelector("#home .hero-copy");
     const tagline = document.querySelector(".header-tagline");

@@ -37,6 +37,7 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".xml": "application/xml; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -3063,7 +3064,14 @@ function isEmailAllowed(email) {
 }
 
 function send(res, status, body, contentType = "text/plain; charset=utf-8", headers = {}) {
-  res.writeHead(status, { "Content-Type": contentType, ...headers });
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "X-Frame-Options": "SAMEORIGIN",
+    ...headers,
+  });
   res.end(body);
 }
 
@@ -5555,9 +5563,19 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
+    const extension = path.extname(filePath).toLowerCase();
+    const cacheControl = extension === ".html"
+      ? "no-cache, must-revalidate"
+      : [".css", ".js"].includes(extension)
+        ? "public, max-age=3600, must-revalidate"
+        : "public, max-age=86400";
     res.writeHead(200, {
-      "Content-Type": types[path.extname(filePath).toLowerCase()] || "application/octet-stream",
-      "Cache-Control": [".html", ".css", ".js"].includes(path.extname(filePath).toLowerCase()) ? "no-cache, must-revalidate" : "public, max-age=86400",
+      "Content-Type": types[extension] || "application/octet-stream",
+      "Cache-Control": cacheControl,
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "X-Frame-Options": "SAMEORIGIN",
     });
     fs.createReadStream(filePath).pipe(res);
   });

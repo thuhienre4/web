@@ -6,26 +6,43 @@
     <title>AloCoupon Coupons, Promo Codes & Product Reviews</title>
     <meta
       name="description"
-      content="Find AloCoupon coupon codes, verified promo deals, affiliate offers, store reviews, product comparisons, and saving tips for software, ecommerce, AI, fashion, and more."
+      content="Find verified AloCoupon coupon codes, promo deals, store reviews, product comparisons, and savings for software, ecommerce, AI, fashion, and more."
     />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="author" content="AloCoupon Editorial Team" />
+    <meta name="application-name" content="AloCoupon" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#08764f" />
     <meta name="impact-site-verification" value="88b901b9-7940-40fa-8224-143506cccee7" />
     <link rel="canonical" href="https://alocoupon.com/" />
+    <link rel="icon" href="/assets/alocoupon-logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="https://alocoupon.com/rss.xml" />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://alocoupon.com/" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:site_name" content="AloCoupon" />
     <meta property="og:title" content="AloCoupon Coupons, Promo Codes & Product Reviews" />
     <meta
       property="og:description"
       content="Browse verified coupon codes, product deals, store reviews, and product information before claiming affiliate offers."
     />
+    <meta property="og:image" content="https://alocoupon.com/assets/affiliate-hero.png" />
+    <meta property="og:image:secure_url" content="https://alocoupon.com/assets/affiliate-hero.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1731" />
+    <meta property="og:image:height" content="909" />
+    <meta property="og:image:alt" content="AloCoupon verified coupon codes and featured online deals" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="AloCoupon Coupons, Promo Codes & Product Reviews" />
     <meta
       name="twitter:description"
       content="Verified deals, coupon codes, affiliate offers, product reviews, and shopping categories in one savings marketplace."
     />
+    <meta name="twitter:image" content="https://alocoupon.com/assets/affiliate-hero.png" />
+    <meta name="twitter:image:alt" content="AloCoupon verified coupon codes and featured online deals" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -38,21 +55,53 @@
         "@graph": [
           {
             "@type": "Organization",
-            "@id": "#organization",
+            "@id": "https://alocoupon.com/#organization",
             "name": "AloCoupon",
+            "url": "https://alocoupon.com/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://alocoupon.com/assets/alocoupon-logo.svg",
+              "width": 512,
+              "height": 512
+            },
             "description": "Coupon marketplace for affiliate campaigns, store reviews, product offers, and verified promotional codes."
           },
           {
             "@type": "WebSite",
-            "@id": "#website",
+            "@id": "https://alocoupon.com/#website",
             "name": "AloCoupon",
+            "url": "https://alocoupon.com/",
+            "inLanguage": "en-US",
             "publisher": {
-              "@id": "#organization"
+              "@id": "https://alocoupon.com/#organization"
             }
           },
           {
+            "@type": "WebPage",
+            "@id": "https://alocoupon.com/#webpage",
+            "url": "https://alocoupon.com/",
+            "name": "AloCoupon Coupons, Promo Codes & Product Reviews",
+            "description": "Find verified coupon codes, promo deals, store reviews, and product offers from AloCoupon.",
+            "isPartOf": {
+              "@id": "https://alocoupon.com/#website"
+            },
+            "about": {
+              "@id": "https://alocoupon.com/#organization"
+            },
+            "primaryImageOfPage": {
+              "@type": "ImageObject",
+              "url": "https://alocoupon.com/assets/affiliate-hero.png",
+              "width": 1731,
+              "height": 909
+            },
+            "inLanguage": "en-US"
+          },
+          {
             "@type": "FAQPage",
-            "@id": "#faq-schema",
+            "@id": "https://alocoupon.com/#faq-schema",
+            "isPartOf": {
+              "@id": "https://alocoupon.com/#webpage"
+            },
             "mainEntity": [
               {
                 "@type": "Question",
@@ -83,9 +132,11 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="styles.css?v=20260713-11" />
+    <link rel="stylesheet" href="styles.css?v=20260715-1" />
   </head>
   <body>
+    <a class="skip-link" href="#home">Skip to main content</a>
+    <div class="scroll-progress" aria-hidden="true"><span></span></div>
     <header class="site-header">
       <div class="container header-inner">
         <a class="brand" href="#home" aria-label="AloCoupon home">
@@ -136,7 +187,7 @@
       </div>
     </header>
 
-    <main id="home">
+    <main id="home" tabindex="-1">
       <section class="hero reveal">
         <div class="container hero-inner">
           <p class="eyebrow">Verified by AloCoupon</p>
@@ -161,7 +212,7 @@
                 <strong>Discover verified deals from brands you already love</strong>
                 <button class="home-banner-action" type="button">Explore this store →</button>
               </span>
-              <span class="home-banner-visual"><img src="assets/affiliate-hero.png" alt="Featured online shopping and coupon deals" /></span>
+              <span class="home-banner-visual"><img src="assets/affiliate-hero.png" width="1731" height="909" alt="Featured online shopping and coupon deals" decoding="async" fetchpriority="high" /></span>
               <button class="home-banner-arrow is-prev" type="button" aria-label="Previous store">‹</button>
               <button class="home-banner-arrow is-next" type="button" aria-label="Next store">›</button>
             </div>
@@ -458,7 +509,7 @@
         </div>
         <article class="feature-post-card">
           <div class="feature-post-media">
-            <img src="assets/affiliate-hero.png" alt="AI coupon and review marketplace" />
+            <img src="assets/affiliate-hero.png" width="1731" height="909" alt="AI coupon and review marketplace" loading="lazy" decoding="async" />
           </div>
           <div class="feature-post-copy">
             <h3>Collov AI Review: The Smart AI Tool for Virtual Staging and Interior Design</h3>
@@ -548,6 +599,7 @@
         <div>
           <p class="footer-brand">AloCoupon</p>
           <p data-i18n="footer.copy">Coupon marketplace for affiliate campaigns, store reviews, and verified promotional offers.</p>
+          <p class="footer-disclosure">AloCoupon may earn a commission from qualifying partner purchases at no extra cost to you.</p>
         </div>
         <div>
           <h3 data-i18n="footer.events">Event Sales</h3>
@@ -577,6 +629,8 @@
     </footer>
 
     <div class="toast" role="status" aria-live="polite"></div>
-    <script src="script.js?v=20260714-15" defer></script>
+    <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
+    <noscript><p class="noscript-note">Enable JavaScript to load the latest verified coupon and deal data.</p></noscript>
+    <script src="script.js?v=20260715-1" defer></script>
   </body>
 </html>

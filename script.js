@@ -42,19 +42,11 @@ const translations = {
     "deal3.media": "Commerce",
     "deal3.title": "Barn2 WooCommerce Plugin Bundle Discount Code",
     "deal3.desc": "Upgrade WooCommerce stores with product tables, filters, bulk ordering, and conversion-focused shopping experiences.",
-    "feedback.eyebrow": "Trustpilot Feedback",
-    "feedback.title": "Product Review Signals from Trustpilot",
-    "feedback.copy": "Review snapshots for featured products, summarized from public Trustpilot pages so visitors can compare customer sentiment before claiming a deal.",
-    "feedback.updated": "Source: Trustpilot public review pages",
-    "feedback.heygen": "Trustpilot reviewers often mention easy video creation, AI avatars, and voice options, while some users report concerns around product credits and subscriptions.",
-    "feedback.wpvivid": "WPvivid has a small Trustpilot sample, so the score should be treated carefully. The current public page shows limited review volume and mixed confidence.",
-    "feedback.barn2": "Barn2 receives strong Trustpilot feedback, especially around plugin functionality, responsive support, and help with WooCommerce customization.",
-    "feedback.source": "Source: Trustpilot",
     "faq.title": "Coupon and Product Review FAQ",
     "faq.q1": "How does AloCoupon choose coupon offers?",
     "faq.a1": "AloCoupon highlights affiliate offers with clear product value, visible discount details, and direct product links so visitors can compare deals quickly.",
     "faq.q2": "Can visitors check reviews before claiming a coupon?",
-    "faq.a2": "Yes. Featured deals include Trustpilot source notes where available, helping shoppers review customer sentiment before visiting a product site.",
+    "faq.a2": "Yes. Featured deals include product information and offer details to help shoppers compare options before visiting a product site.",
     "faq.q3": "Which coupon categories are available?",
     "faq.a3": "The marketplace covers AI, ecommerce, software, electronics, fashion, food, health, travel, web hosting, and other shopping categories.",
     "categories.title": "All Categories",
@@ -130,19 +122,11 @@ const translations = {
     "deal3.media": "Commerce",
     "deal3.title": "Code de réduction Barn2 pour le bundle WooCommerce",
     "deal3.desc": "Améliorez les boutiques WooCommerce avec des tableaux produits, filtres, commandes groupées et expériences d'achat orientées conversion.",
-    "feedback.eyebrow": "Avis Trustpilot",
-    "feedback.title": "Signaux d'avis produits depuis Trustpilot",
-    "feedback.copy": "Aperçus d'avis pour les produits mis en avant, résumés depuis les pages publiques Trustpilot afin d'aider les visiteurs à comparer le sentiment client avant de réclamer une offre.",
-    "feedback.updated": "Source : pages d'avis publiques Trustpilot",
-    "feedback.heygen": "Les avis Trustpilot mentionnent souvent la création vidéo simple, les avatars IA et les options vocales, tandis que certains utilisateurs signalent des préoccupations liées aux crédits et aux abonnements.",
-    "feedback.wpvivid": "WPvivid possède un petit échantillon d'avis Trustpilot, le score doit donc être lu avec prudence. La page publique actuelle montre un volume d'avis limité et une confiance mitigée.",
-    "feedback.barn2": "Barn2 reçoit de bons retours Trustpilot, notamment sur les fonctionnalités des plugins, le support réactif et l'aide à la personnalisation WooCommerce.",
-    "feedback.source": "Source : Trustpilot",
     "faq.title": "FAQ coupons et avis produits",
     "faq.q1": "Comment AloCoupon choisit-il les offres de coupons ?",
     "faq.a1": "AloCoupon met en avant les offres d'affiliation avec une valeur produit claire, des détails de réduction visibles et des liens directs afin de comparer rapidement les offres.",
     "faq.q2": "Les visiteurs peuvent-ils consulter les avis avant de réclamer un coupon ?",
-    "faq.a2": "Oui. Les offres mises en avant incluent des mentions de source Trustpilot lorsque disponibles, afin d'aider les acheteurs à évaluer le sentiment client avant de visiter le site du produit.",
+    "faq.a2": "Oui. Les offres mises en avant incluent les informations produit et les détails de l'offre pour aider les acheteurs à comparer avant de visiter le site du produit.",
     "faq.q3": "Quelles catégories de coupons sont disponibles ?",
     "faq.a3": "La marketplace couvre l'IA, l'ecommerce, les logiciels, l'électronique, la mode, l'alimentation, la santé, le voyage, l'hébergement web et d'autres catégories shopping.",
     "categories.title": "Toutes les catégories",
@@ -218,19 +202,11 @@ const translations = {
     "deal3.media": "Commerce",
     "deal3.title": "Código de desconto Barn2 para pacote WooCommerce",
     "deal3.desc": "Melhore lojas WooCommerce com tabelas de produtos, filtros, pedidos em massa e experiências de compra focadas em conversão.",
-    "feedback.eyebrow": "Feedback Trustpilot",
-    "feedback.title": "Sinais de avaliação de produtos no Trustpilot",
-    "feedback.copy": "Resumo de avaliações dos produtos em destaque, baseado em páginas públicas do Trustpilot para ajudar visitantes a comparar a percepção dos clientes antes de resgatar uma oferta.",
-    "feedback.updated": "Fonte: páginas públicas de avaliações do Trustpilot",
-    "feedback.heygen": "Avaliações no Trustpilot frequentemente mencionam criação de vídeo fácil, avatares de IA e opções de voz, enquanto alguns usuários relatam preocupações com créditos e assinaturas.",
-    "feedback.wpvivid": "O WPvivid tem uma amostra pequena no Trustpilot, então a pontuação deve ser lida com cuidado. A página pública atual mostra volume limitado de avaliações e confiança mista.",
-    "feedback.barn2": "O Barn2 recebe feedback forte no Trustpilot, especialmente sobre funcionalidades dos plugins, suporte responsivo e ajuda com personalização WooCommerce.",
-    "feedback.source": "Fonte: Trustpilot",
     "faq.title": "FAQ sobre cupons e avaliações de produtos",
     "faq.q1": "Como a AloCoupon escolhe ofertas de cupons?",
     "faq.a1": "A AloCoupon destaca ofertas de afiliados com valor claro de produto, detalhes visíveis de desconto e links diretos para que visitantes comparem ofertas rapidamente.",
     "faq.q2": "Os visitantes podem verificar avaliações antes de resgatar um cupom?",
-    "faq.a2": "Sim. As ofertas em destaque incluem notas de fonte do Trustpilot quando disponíveis, ajudando compradores a revisar a percepção dos clientes antes de visitar o site do produto.",
+    "faq.a2": "Sim. As ofertas em destaque incluem informações do produto e detalhes da oferta para ajudar compradores a comparar antes de visitar o site do produto.",
     "faq.q3": "Quais categorias de cupons estão disponíveis?",
     "faq.a3": "A marketplace cobre IA, ecommerce, software, eletrônicos, moda, alimentação, saúde, viagens, hospedagem web e outras categorias de compras.",
     "categories.title": "Todas as categorias",
@@ -4095,7 +4071,13 @@ function renderLandingHero(items) {
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
     });
-    rail.querySelector(`[data-store-index="${activeHeroStoreIndex}"]`)?.scrollIntoView({ behavior: options.instant ? "auto" : "smooth", inline: "center", block: "nearest" });
+    const activeChip = rail.querySelector(`[data-store-index="${activeHeroStoreIndex}"]`);
+    if (activeChip) {
+      rail.scrollTo({
+        left: Math.max(0, activeChip.offsetLeft - (rail.clientWidth - activeChip.clientWidth) / 2),
+        behavior: options.instant ? "auto" : "smooth"
+      });
+    }
     if (options.filter) {
       activeDealStore = key;
       rail.querySelectorAll("[data-store-key]").forEach((button) => button.classList.toggle("is-filtered", button.dataset.storeKey === key));
@@ -4122,16 +4104,8 @@ function renderLandingHero(items) {
   banner.querySelector(".is-next")?.addEventListener("click", () => selectStore(activeHeroStoreIndex + 1));
   banner.querySelector(".home-banner-action")?.addEventListener("click", () => selectStore(activeHeroStoreIndex, { filter: true, scroll: true }));
 
-  const startAutoplay = () => {
-    clearInterval(heroAutoplayTimer);
-    heroAutoplayTimer = setInterval(() => selectStore(activeHeroStoreIndex + 1), 6500);
-  };
-  carousel.addEventListener("mouseenter", () => clearInterval(heroAutoplayTimer));
-  carousel.addEventListener("mouseleave", startAutoplay);
-  carousel.addEventListener("focusin", () => clearInterval(heroAutoplayTimer));
-  carousel.addEventListener("focusout", startAutoplay);
+  clearInterval(heroAutoplayTimer);
   selectStore(activeHeroStoreIndex, { instant: true });
-  startAutoplay();
 }
 
 function renderDealPagination(matchedDeals) {
@@ -4283,70 +4257,6 @@ affiliateItemsEl?.addEventListener("click", async (event) => {
     showToast(`Coupon code: ${code}`);
   }
 });
-
-async function renderTrustpilotReviews() {
-  const grid = document.querySelector("#trustpilot-feedback-grid");
-  if (!grid) return;
-  try {
-    const response = await fetch("/api/trustpilot-reviews", { headers: { Accept: "application/json" } });
-    const items = response.ok ? await response.json() : [];
-    if (!Array.isArray(items) || !items.length) return;
-    grid.innerHTML = items.slice(0, 6).map((item, index) => {
-      const review = Array.isArray(item.reviews) ? item.reviews[0] : null;
-      const starsValue = Math.max(0, Math.min(5, Math.round(Number(review?.stars || item.trustScore || 0))));
-      const stars = `${"★".repeat(starsValue)}${"☆".repeat(5 - starsValue)}`;
-      const initials = escapeHtml(getStoreInitials(item.displayName || item.domain));
-      const sourceUrl = getSafeAffiliateUrl(review?.sourceUrl || item.profileUrl);
-      const reviewText = review?.text || `${item.reviewCount || 0} public Trustpilot reviews with a TrustScore of ${Number(item.trustScore || 0).toFixed(1)}.`;
-      return `
-        <article class="feedback-card">
-          <div class="feedback-head">
-            <span class="avatar${index % 3 === 1 ? " teal" : index % 3 === 2 ? " gold" : ""}">${initials}</span>
-            <span class="stars" aria-label="${starsValue} out of 5 stars">${stars}</span>
-          </div>
-          <h3>${escapeHtml(item.displayName || item.domain)}</h3>
-          <p>${escapeHtml(reviewText)}</p>
-          <p class="trustpilot-review-meta">${escapeHtml(review?.consumer || "Trustpilot reviewers")} · ${Number(item.reviewCount || 0).toLocaleString()} reviews</p>
-          <a class="source-note" href="${sourceUrl}" target="_blank" rel="noopener">View original review on Trustpilot</a>
-        </article>
-      `;
-    }).join("");
-  } catch {
-    grid.innerHTML = `<p class="trustpilot-empty">Trustpilot data is temporarily unavailable.</p>`;
-  }
-}
-
-async function renderTrustpilotReviews() {
-  const grid = document.querySelector("#trustpilot-feedback-grid");
-  if (!grid) return;
-  try {
-    const response = await fetch("/api/trustpilot-reviews", { headers: { Accept: "application/json" } });
-    const items = response.ok ? await response.json() : [];
-    if (!Array.isArray(items) || !items.length) return;
-    grid.innerHTML = items.slice(0, 6).map((item, index) => {
-      const review = Array.isArray(item.reviews) ? item.reviews[0] : null;
-      const starsValue = Math.max(0, Math.min(5, Math.round(Number(review?.stars || item.trustScore || 0))));
-      const stars = `${"★".repeat(starsValue)}${"☆".repeat(5 - starsValue)}`;
-      const initials = escapeHtml(getStoreInitials(item.displayName || item.domain));
-      const sourceUrl = getSafeAffiliateUrl(review?.sourceUrl || item.profileUrl);
-      const reviewText = review?.text || `${item.reviewCount || 0} public Trustpilot reviews with a TrustScore of ${Number(item.trustScore || 0).toFixed(1)}.`;
-      return `
-        <article class="feedback-card">
-          <div class="feedback-head">
-            <span class="avatar${index % 3 === 1 ? " teal" : index % 3 === 2 ? " gold" : ""}">${initials}</span>
-            <span class="stars" aria-label="${starsValue} out of 5 stars">${stars}</span>
-          </div>
-          <h3>${escapeHtml(item.displayName || item.domain)}</h3>
-          <p>${escapeHtml(reviewText)}</p>
-          <p class="trustpilot-review-meta">${escapeHtml(review?.consumer || "Trustpilot reviewers")} · ${Number(item.reviewCount || 0).toLocaleString()} reviews</p>
-          <a class="source-note" href="${sourceUrl}" target="_blank" rel="noopener">View original review on Trustpilot</a>
-        </article>
-      `;
-    }).join("");
-  } catch {
-    grid.innerHTML = `<p class="trustpilot-empty">Trustpilot data is temporarily unavailable.</p>`;
-  }
-}
 
 document.querySelectorAll(".language-switch").forEach((switcher) => {
   const trigger = switcher.querySelector(".language-trigger");
@@ -4513,4 +4423,3 @@ applyPublicSiteSettings();
 renderUploadedDealsInMainGrid();
 renderAffiliateItems();
 renderLiveCouponStore();
-renderTrustpilotReviews();

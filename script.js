@@ -3985,6 +3985,35 @@ function renderDealCategoryFilters(items) {
   syncDealCategoryControls();
 }
 
+function renderFeaturePost(items) {
+  const section = document.querySelector("#feature-post");
+  const card = section?.querySelector(".feature-post-card");
+  if (!section || !card || !Array.isArray(items) || !items.length) return;
+
+  const featured = items.find((item) => item.productImage || item.landingImage || item.logo) || items[0];
+  const brand = getOfferBrandName(featured);
+  const title = getDisplayOfferTitle(featured);
+  const summary = getOfferSummary(featured);
+  const imageSource = featured.productImage || featured.landingImage || featured.logo || "assets/affiliate-hero.png";
+  const image = card.querySelector(".feature-post-media img");
+  const heading = card.querySelector(".feature-post-copy h3");
+  const copy = card.querySelector(".feature-post-copy p");
+  const link = card.querySelector(".read-link");
+
+  card.classList.toggle("uses-logo", Boolean(featured.logo && imageSource === featured.logo));
+  card.dataset.offerId = String(featured.id || "");
+  if (image) {
+    image.src = imageSource;
+    image.alt = `${brand} featured deal`;
+  }
+  if (heading) heading.textContent = title;
+  if (copy) copy.textContent = summary;
+  if (link) {
+    link.href = getOfferDealUrl(featured);
+    link.textContent = "View Deal";
+  }
+}
+
 async function renderUploadedDealsInMainGrid() {
   if (!dealSearchResultsEl) {
     return;
@@ -3993,6 +4022,7 @@ async function renderUploadedDealsInMainGrid() {
   dealSearchResultsEl.querySelectorAll(".uploaded-public-deal").forEach((item) => item.remove());
   const items = await getAffiliateItems();
   lastAffiliateItems = items;
+  renderFeaturePost(items);
   renderLandingHero(items);
   renderPopularStores(items);
   renderDealCategoryFilters(items);

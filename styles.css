@@ -1577,6 +1577,12 @@ h3 {
   object-fit: cover;
 }
 
+.feature-post-card.uses-logo .feature-post-media img {
+  padding: 36px;
+  object-fit: contain;
+  background: #fff;
+}
+
 .feature-post-copy {
   display: flex;
   flex-direction: column;

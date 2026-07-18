@@ -6019,3 +6019,37 @@ body.teela-inspired-theme:not(.admin-mode) .store-card h3 {
 .admin-mode .cms-flow-arrow { display: grid; width: 30px; height: 30px; align-self: center; place-items: center; color: #7d8b96; background: #edf2f5; border-radius: 50%; font-size: .9rem; }
 .admin-mode .cms-entity-secondary { padding-top: 12px; border-top: 1px dashed #d9e1e6; }
 .admin-mode .cms-entity-secondary button { min-height: 58px; padding: 12px 14px; background: rgba(255,255,255,.82); border-radius: 8px; }
+
+/* Store CMS editor mirrors the imported proCMS data structure. */
+.admin-mode .cms-store-editor-panel { padding-bottom: 42px; }
+.admin-mode .cms-store-actions { position: sticky; top: 0; z-index: 8; margin: -6px 0 14px; padding: 10px 12px; background: rgba(246,248,251,.94); border: 1px solid #dce3e9; border-radius: 8px; backdrop-filter: blur(8px); }
+.admin-mode .cms-store-editor { overflow: hidden; padding: 0; background: #fff; border: 1px solid #dce3e9; border-radius: 9px; box-shadow: 0 10px 24px rgba(30,48,64,.07); }
+.admin-mode .cms-store-editor .cms-field-row { min-height: 58px; margin: 0; padding: 10px 18px; border-bottom: 1px solid #edf1f4; }
+.admin-mode .cms-store-editor .cms-field-row > label:first-child { color: #344656; font-size: .76rem; font-weight: 800; }
+.admin-mode .cms-store-editor input,
+.admin-mode .cms-store-editor select,
+.admin-mode .cms-store-editor textarea { border-color: #d8e0e6; border-radius: 5px; background: #fff; }
+.admin-mode .cms-store-editor input:focus,
+.admin-mode .cms-store-editor select:focus,
+.admin-mode .cms-store-editor textarea:focus { border-color: #2b8fca; box-shadow: 0 0 0 3px rgba(43,143,202,.11); outline: 0; }
+.admin-mode .cms-store-source-control { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.admin-mode .cms-store-source-control input { min-width: 0; }
+.admin-mode .cms-field-help { grid-column: 2; margin-top: 5px; color: #768692; font-size: .7rem; }
+.admin-mode .cms-store-editor .cms-file-picker { align-items: center; display: grid; grid-template-columns: auto minmax(220px,1fr) auto; gap: 8px; }
+.admin-mode .cms-store-editor .cms-file-picker input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.admin-mode .cms-store-editor .cms-file-picker input[type=text] { min-width: 0; width: 100%; }
+.admin-mode .cms-store-media-preview { display: flex; flex-wrap: wrap; gap: 18px; }
+.admin-mode .cms-store-media-preview > div { display: grid; gap: 5px; }
+.admin-mode .cms-store-media-preview small { color: #72828f; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.admin-mode .cms-store-media-preview img { width: 190px; height: 112px; object-fit: contain; background: #f7f9fa; border: 1px solid #dce3e8; border-radius: 8px; }
+.admin-mode .cms-store-editor .cms-rich-editor textarea { min-height: 132px; }
+.admin-mode .cms-store-editor #store-about { min-height: 220px; }
+.admin-mode .cms-form-footer { display: grid; grid-template-columns: minmax(150px, 24%) 1fr; padding: 15px 18px; background: #f8fafb; }
+.admin-mode .cms-form-footer .cms-btn { justify-self: start; min-width: 88px; }
+
+@media (max-width: 820px) {
+  .admin-mode .cms-store-actions { position: static; }
+  .admin-mode .cms-store-source-control { grid-template-columns: 1fr; }
+  .admin-mode .cms-store-editor .cms-file-picker { grid-template-columns: 1fr; }
+  .admin-mode .cms-field-help { grid-column: 1; }
+}

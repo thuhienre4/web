@@ -9,8 +9,10 @@ const { exec } = require("child_process");
 const root = __dirname;
 const host = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
+const storesFileName = 'stores.json';
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123456";
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
+const storesFile = path.join(dataDir, storesFileName);
 const offersFile = path.join(dataDir, "offers.json");
 const projectsFile = path.join(dataDir, "projects.json");
 const trustpilotReviewsFile = path.join(dataDir, "trustpilot-reviews.json");
@@ -2787,6 +2789,10 @@ function ensureDataFile() {
       fs.writeFileSync(offersFile, JSON.stringify(starterOffers, null, 2));
     }
   }
+  if (!fs.existsSync(storesFile)) {
+    const sourceOffers = readJsonArrayFile(offersFile, starterOffers);
+    fs.writeFileSync(storesFile, JSON.stringify(deriveStoresFromOffers(sourceOffers), null, 2));
+  }
   if (!fs.existsSync(adminEmailsFile)) {
     fs.writeFileSync(adminEmailsFile, JSON.stringify(starterAdminEmails, null, 2));
   }
@@ -2955,6 +2961,119 @@ function writeOffers(offers) {
   fs.writeFileSync(offersFile, JSON.stringify(normalizeOffers(offers), null, 2));
 }
 
+function getStoreSourceUrl(offer) {
+  return String(offer.sourceUrl || offer.link || '').trim();
+}
+
+function deriveStoresFromOffers(offers) {
+  const grouped = new Map();
+  normalizeOffers(Array.isArray(offers) ? offers : []).forEach((offer, index) => {
+    const sourceBrand = String(offer.brand || '').trim();
+    const name = getPrettyBrandName(sourceBrand);
+    if (!name) return;
+    const slug = getOfferStoreSlug(name);
+    const current = grouped.get(slug) || {
+      id: `store_${crypto.createHash('sha1').update(slug).digest('hex').slice(0, 16)}`,
+      name,
+      sourceBrand,
+      slug,
+      category: String(offer.category || 'Other').trim() || 'Other',
+      event: 'Uncategorized',
+      image: String(offer.logo || '').trim(),
+      approved: true,
+      description: String(offer.sourceDescription || '').trim().slice(0, 1200),
+      aboutStore: '',
+      howToApply: '',
+      faqs: '',
+      maxOffer: 0,
+      metaTitle: `${name} Coupons, Promo Codes & Deals`,
+      metaKeywords: '',
+      metaDescription: String(offer.sourceDescription || '').trim().slice(0, 500),
+      sourceUrl: getStoreSourceUrl(offer),
+      sourceTitle: String(offer.sourceTitle || '').trim().slice(0, 240),
+      productImage: String(offer.productImage || '').trim(),
+      order: index + 1,
+      createdAt: offer.createdAt || new Date().toISOString(),
+      updatedAt: offer.createdAt || new Date().toISOString(),
+    };
+    current.image ||= String(offer.logo || '').trim();
+    current.productImage ||= String(offer.productImage || '').trim();
+    current.sourceUrl ||= getStoreSourceUrl(offer);
+    current.sourceTitle ||= String(offer.sourceTitle || '').trim().slice(0, 240);
+    current.description ||= String(offer.sourceDescription || '').trim().slice(0, 1200);
+    grouped.set(slug, current);
+  });
+  return Array.from(grouped.values()).sort((a, b) => Number(a.order) - Number(b.order) || a.name.localeCompare(b.name));
+}
+
+function normalizeStore(input, existing = null) {
+  const now = new Date().toISOString();
+  const name = String(input.name || '').trim().slice(0, 160);
+  if (!name) throw new Error('Store name is required.');
+  const slug = slugify(input.slug || name).slice(0, 180);
+  if (!slug) throw new Error('Store slug is required.');
+  const sourceUrl = String(input.sourceUrl || '').trim().slice(0, 2000);
+  if (sourceUrl) {
+    const parsed = new URL(sourceUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Store website must use http or https.');
+  }
+  return {
+    id: String(existing?.id || input.id || `store_${crypto.randomBytes(12).toString('hex')}`),
+    name,
+    sourceBrand: String(input.sourceBrand || existing?.sourceBrand || name).trim().slice(0, 160),
+    slug,
+    category: String(input.category || 'Other').trim().slice(0, 120) || 'Other',
+    event: String(input.event || 'Uncategorized').trim().slice(0, 120) || 'Uncategorized',
+    image: sanitizeOfferImage(input.image || '', 'Store image', 1_500 * 1024),
+    approved: input.approved !== false && String(input.approved).toLowerCase() !== 'false',
+    deleted: input.deleted === true || String(input.deleted).toLowerCase() === 'true',
+    description: String(input.description || '').trim().slice(0, 12000),
+    aboutStore: String(input.aboutStore || '').trim().slice(0, 30000),
+    howToApply: String(input.howToApply || '').trim().slice(0, 12000),
+    faqs: String(input.faqs || '').trim().slice(0, 20000),
+    maxOffer: Math.max(0, Math.min(1000, Number(input.maxOffer) || 0)),
+    metaTitle: String(input.metaTitle || `${name} Coupons, Promo Codes & Deals`).trim().slice(0, 180),
+    metaKeywords: String(input.metaKeywords || '').trim().slice(0, 500),
+    metaDescription: String(input.metaDescription || '').trim().slice(0, 500),
+    sourceUrl,
+    sourceTitle: String(input.sourceTitle || '').trim().slice(0, 240),
+    productImage: sanitizeOfferImage(input.productImage || '', 'Product image', 1_500 * 1024),
+    order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
+    createdAt: existing?.createdAt || input.createdAt || now,
+    updatedAt: existing === input ? (existing.updatedAt || existing.createdAt || now) : now,
+  };
+}
+
+function readStores() {
+  ensureDataFile();
+  const existing = readJsonArrayFile(storesFile);
+  const bySlug = new Map(existing.map((store) => [slugify(store.slug || store.name), store]));
+  let changed = false;
+  deriveStoresFromOffers(readJsonArrayFile(offersFile, starterOffers)).forEach((derived) => {
+    const current = bySlug.get(derived.slug);
+    if (!current) {
+      existing.push(derived);
+      bySlug.set(derived.slug, derived);
+      changed = true;
+      return;
+    }
+    for (const field of ['image', 'productImage', 'sourceUrl', 'sourceTitle', 'description']) {
+      if (!current[field] && derived[field]) { current[field] = derived[field]; changed = true; }
+    }
+  });
+  if (changed) fs.writeFileSync(storesFile, JSON.stringify(existing, null, 2));
+  return existing.map((store) => {
+    try { return normalizeStore(store, store); } catch { return null; }
+  }).filter((store) => store && !store.deleted).sort((a, b) => Number(a.order) - Number(b.order) || a.name.localeCompare(b.name));
+}
+
+function writeStores(stores) {
+  ensureDataFile();
+  const ids = new Set(stores.map((store) => store.id));
+  const tombstones = readJsonArrayFile(storesFile).filter((store) => store.deleted && !ids.has(store.id));
+  fs.writeFileSync(storesFile, JSON.stringify([...stores, ...tombstones], null, 2));
+}
+
 function readAdminCategoryPreferences() {
   ensureDataFile();
   try {
@@ -2989,7 +3108,7 @@ function writeAdminCategoryPreferences(input) {
 function getAdminDashboardData() {
   const offers = readOffers();
   const subscribers = readSubscribers();
-  const stores = new Set(offers.map((offer) => String(offer.brand || "").trim().toLowerCase()).filter(Boolean));
+  const stores = readStores();
   const categories = new Set(offers.map((offer) => String(offer.category || "Other").trim().toLowerCase()).filter(Boolean));
   const now = Date.now();
   const isExpired = (offer) => {
@@ -3002,7 +3121,7 @@ function getAdminDashboardData() {
       offers: offers.length,
       coupons: offers.filter((offer) => offer.type === "code").length,
       deals: offers.filter((offer) => offer.type === "deal").length,
-      stores: stores.size,
+      stores: stores.length,
       categories: categories.size,
       visible: offers.filter((offer) => offer.visible !== false).length,
       expired: offers.filter(isExpired).length,
@@ -3873,7 +3992,13 @@ function groupOffersByBrand(items) {
 
 function findStoreGroupBySlug(slug) {
   const normalizedSlug = slugify(slug);
-  return groupOffersByBrand(readOffers()).get(normalizedSlug);
+  const store = readStores().find((item) => item.slug === normalizedSlug && item.approved) || null;
+  const offers = readOffers();
+  const groups = groupOffersByBrand(offers);
+  const storeItems = store ? offers.filter((offer) => String(offer.brand || '').trim().toLowerCase() === String(store.sourceBrand || store.name).trim().toLowerCase()) : [];
+  const group = storeItems.length ? { brand: store.name, items: storeItems } : groups.get(normalizedSlug);
+  if (group) group.store = store;
+  return group;
 }
 
 function getValidOfferExpiry(offer) {
@@ -4174,7 +4299,7 @@ function loginPage(error = "") {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AloCoupon Admin Login</title>
-  <link rel="stylesheet" href="/styles.css?v=20260719-admin2" />
+  <link rel="stylesheet" href="/styles.css?v=20260719-storecms" />
 </head>
 <body>
   <main class="section admin-section" style="display:block; min-height:100vh;">
@@ -4209,7 +4334,7 @@ function adminPage(adminEmail = "") {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AloCoupon Secure Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=20260719-admin2" />
+  <link rel="stylesheet" href="/styles.css?v=20260719-storecms" />
 </head>
 <body class="admin-mode">
   <div class="admin-cms-shell">
@@ -4309,6 +4434,44 @@ function adminPage(adminEmail = "") {
           <div class="cms-page-heading"><div><h1>Quản lý store</h1><p>Danh sách cửa hàng được tổng hợp từ dữ liệu coupon đã upload.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Store</strong></div></div>
           <div class="category-toolbar"><div class="category-search"><input id="store-list-search" type="search" placeholder="Tìm kiếm" /><select id="store-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="store" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" id="refresh-store-list-btn" type="button">↻ Làm mới</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-dark" data-admin-target="dashboard" type="button">↶ Dashboard</button></div></div>
           <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="store" /></th><th>Store</th><th>Logo</th><th>Danh mục</th><th>Coupon</th><th>Deal</th><th>Dữ liệu nguồn</th><th>Cập nhật</th><th class="row-actions"></th></tr></thead><tbody id="store-list-body"></tbody></table></div>
+        </section>
+
+        <section class="cms-panel cms-create-panel cms-store-editor-panel" data-admin-panel="store-edit" hidden>
+          <div class="cms-page-heading cms-create-heading">
+            <div><h1 id="store-editor-title">Thêm mới store</h1><p>Quản lý Store độc lập theo cấu trúc proCMS, vẫn dùng dữ liệu và API AloCoupon.</p></div>
+            <div class="cms-breadcrumb"><button data-admin-target="dashboard">Home</button><span>/</span><button data-admin-target="store-list">Store</button><span>/</span><strong>Chỉnh sửa</strong></div>
+          </div>
+          <div class="cms-create-actions cms-store-actions">
+            <button class="cms-btn cms-btn-primary" type="submit" form="store-editor-form">▣ Cập nhật</button>
+            <a class="cms-btn cms-btn-info" id="store-preview-btn" href="#" target="_blank" rel="noopener" hidden>◉ Xem trước</a>
+            <button class="cms-btn cms-btn-info" id="store-new-btn" type="button">⊕ Thêm mới</button>
+            <button class="cms-btn cms-btn-danger" id="store-delete-btn" type="button" hidden>▰ Xóa</button>
+            <button class="cms-btn cms-btn-dark" data-admin-target="store-list" type="button">↶ Cancel</button>
+          </div>
+          <form class="cms-editor-form cms-store-editor" id="store-editor-form">
+            <input name="id" type="hidden" />
+            <input name="sourceTitle" type="hidden" />
+            <input name="productImage" type="hidden" />
+            <div class="cms-field-row"><label for="store-name">Tên store</label><input id="store-name" name="name" type="text" placeholder="Tên store" required /></div>
+            <div class="cms-field-row"><label for="store-slug">Slug</label><input id="store-slug" name="slug" type="text" placeholder="store-slug" required /></div>
+            <div class="cms-field-row"><label for="store-category">Danh mục</label><select id="store-category" name="category"><option>Other</option></select></div>
+            <div class="cms-field-row"><label for="store-event">Events</label><select id="store-event" name="event"><option>Uncategorized</option><option>Black Friday</option><option>Valentine</option><option>Christmas</option><option>Halloween</option></select></div>
+            <div class="cms-field-row"><label for="store-source-url">Website nguồn</label><div class="cms-store-source-control"><input id="store-source-url" name="sourceUrl" type="url" placeholder="https://website-cua-store.com/" /><button class="cms-btn cms-btn-info" id="store-extract-btn" type="button">⌁ Trích xuất logo & nội dung</button></div><small class="cms-field-help">Tự lấy logo, ảnh sản phẩm, tiêu đề và mô tả từ website công khai; không thay dữ liệu Offer/Deal gốc.</small></div>
+            <div class="cms-field-row"><label for="store-image-file">Image</label><div class="cms-file-picker"><label class="cms-file-button" for="store-image-file">▧ Chọn file</label><input id="store-image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><input id="store-image" name="image" type="text" placeholder="URL logo hoặc chọn file" /><span id="store-image-file-name">Chưa chọn file</span></div></div>
+            <div class="cms-field-row cms-preview-row" id="store-image-preview-row" hidden><span></span><div class="cms-store-media-preview"><div><small>Logo store</small><img id="store-image-preview" alt="Store logo" /></div><div id="store-product-preview-wrap" hidden><small>Ảnh sản phẩm trích xuất</small><img id="store-product-preview" alt="Product preview" /></div></div></div>
+            <div class="cms-field-row"><label>Duyệt bài</label><label class="cms-switch"><input name="approved" type="checkbox" checked /><span>YES</span></label></div>
+            <div class="cms-field-row cms-description-row"><label for="store-description">Mô tả ngắn</label><div class="cms-rich-editor"><div class="cms-editor-toolbar"><button type="button">Source</button><button type="button"><b>B</b></button><button type="button"><i>I</i></button><button type="button"><u>U</u></button><button type="button">☷</button><button type="button">☰</button><select><option>Format</option></select><select><option>Font</option></select></div><textarea id="store-description" name="description" rows="5" placeholder="Nếu để trống hệ thống sẽ dùng mô tả đã trích xuất"></textarea></div></div>
+            <div class="cms-field-row cms-description-row"><label for="store-about">About store</label><div class="cms-rich-editor"><div class="cms-editor-toolbar"><button type="button">Source</button><button type="button"><b>B</b></button><button type="button"><i>I</i></button><button type="button">Link</button><button type="button">☷</button><select><option>Paragraph</option></select></div><textarea id="store-about" name="aboutStore" rows="9"></textarea></div></div>
+            <div class="cms-field-row cms-description-row"><label for="store-how-to">How to apply</label><textarea id="store-how-to" name="howToApply" rows="5" placeholder="Nếu để trống sẽ dùng hướng dẫn mặc định"></textarea></div>
+            <div class="cms-field-row cms-description-row"><label for="store-faqs">FAQS</label><textarea id="store-faqs" name="faqs" rows="7" placeholder="Mỗi câu hỏi và câu trả lời trên một đoạn riêng"></textarea></div>
+            <div class="cms-field-row"><label for="store-max-offer">Max Offer</label><input id="store-max-offer" name="maxOffer" type="number" min="0" max="1000" value="0" /></div>
+            <div class="cms-field-row"><label for="store-order">Sắp xếp</label><input id="store-order" name="order" type="number" value="9999999" /></div>
+            <div class="cms-field-row"><label for="store-meta-title">Meta title</label><input id="store-meta-title" name="metaTitle" type="text" /></div>
+            <div class="cms-field-row"><label for="store-meta-keywords">Meta keywords</label><input id="store-meta-keywords" name="metaKeywords" type="text" /></div>
+            <div class="cms-field-row cms-description-row"><label for="store-meta-description">Meta description</label><textarea id="store-meta-description" name="metaDescription" rows="4"></textarea></div>
+            <div class="cms-field-row" id="store-offers-link-row" hidden><label>List Offers</label><button class="category-name-link" id="store-view-offers-btn" type="button">View Offers</button></div>
+            <div class="cms-form-footer"><span></span><button class="cms-btn cms-btn-primary" type="submit">Save</button></div>
+          </form>
         </section>
 
         <section class="cms-panel coupon-manager-panel" data-admin-panel="offer-list" hidden>
@@ -4593,6 +4756,13 @@ function adminPage(adminEmail = "") {
     const categorySearchInput = document.querySelector("#category-search");
     const categoryKindSelect = document.querySelector("#category-kind");
     const storeListBody = document.querySelector("#store-list-body");
+    const storeEditorForm = document.querySelector('#store-editor-form');
+    const storeImageInput = document.querySelector('#store-image');
+    const storeImageFile = document.querySelector('#store-image-file');
+    const storeImagePreviewRow = document.querySelector('#store-image-preview-row');
+    const storeImagePreview = document.querySelector('#store-image-preview');
+    const storeProductPreviewWrap = document.querySelector('#store-product-preview-wrap');
+    const storeProductPreview = document.querySelector('#store-product-preview');
     const offerListBody = document.querySelector("#offer-list-body");
     const dealListBody = document.querySelector("#deal-list-body");
     const newsListBody = document.querySelector("#news-list-body");
@@ -4621,6 +4791,7 @@ function adminPage(adminEmail = "") {
     const adminDashboardRecent = document.querySelector("#admin-dashboard-recent");
     const settingsForms = document.querySelectorAll("[data-settings-form]");
     let currentOffers = [];
+    let currentStores = [];
     let currentLogo = "";
     let currentProjectFiles = [];
     let currentDealLogo = "";
@@ -4794,6 +4965,7 @@ function adminPage(adminEmail = "") {
 
     function renderStoreManager() {
       const query = document.querySelector("#store-list-search").value.trim().toLowerCase();
+      const status = document.querySelector('#store-list-status').value;
       const groups = new Map();
       currentOffers.forEach((offer) => {
         const key = String(offer.brand || "Unknown store").trim() || "Unknown store";
@@ -4807,8 +4979,11 @@ function adminPage(adminEmail = "") {
         current.latestAt = Math.max(current.latestAt, new Date(offer.createdAt || 0).getTime());
         groups.set(key, current);
       });
-      const stores = Array.from(groups.values()).filter((store) => !query || store.brand.toLowerCase().includes(query)).sort((a, b) => b.latestAt - a.latestAt);
-      storeListBody.innerHTML = stores.length ? stores.map((store, index) => \`<tr><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="store" type="checkbox" /></td><td><button class="category-name-link store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">\${escapeHtml(store.brand)}</button><small class="cms-table-sub">\${store.count} bản ghi liên kết</small></td><td>\${store.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(store.logo) + '" alt="" />' : '<span class="coupon-image-empty">Thiếu logo</span>'}</td><td><span class="cms-data-chip">\${escapeHtml(Array.from(store.categories).slice(0, 2).join(", "))}</span></td><td><strong>\${store.coupons}</strong></td><td><strong>\${store.deals}</strong></td><td><span class="\${store.missingSource ? "cms-status-warning" : "cms-status-active"}">\${store.missingSource ? store.missingSource + " thiếu metadata" : "Đầy đủ"}</span></td><td>\${formatAdminDate(store.latestAt)}</td><td class="row-actions"><button class="table-edit-btn store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button" title="Xem offer của store">→</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="10">Chưa có dữ liệu Store.</td></tr>';
+      const stores = currentStores.filter((store) => (status === 'all' || store.approved) && (!query || [store.name, store.slug, store.category].some((value) => String(value || '').toLowerCase().includes(query))));
+      storeListBody.innerHTML = stores.length ? stores.map((store, index) => {
+        const aggregate = groups.get(store.sourceBrand || store.name) || { count: 0, coupons: 0, deals: 0, categories: new Set([store.category]), missingSource: 0, latestAt: store.updatedAt };
+        return \`<tr data-store-id="\${escapeHtml(store.id)}"><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="store" type="checkbox" /></td><td><button class="category-name-link store-edit-btn" type="button">\${escapeHtml(store.name)}</button><small class="cms-table-sub">\${escapeHtml(store.slug)} · \${aggregate.count} offer</small></td><td>\${store.image ? '<img class="coupon-table-logo" src="' + escapeHtml(store.image) + '" alt="" />' : '<span class="coupon-image-empty">Thiếu logo</span>'}</td><td><span class="cms-data-chip">\${escapeHtml(store.category || Array.from(aggregate.categories)[0] || 'Other')}</span></td><td><strong>\${aggregate.coupons}</strong></td><td><strong>\${aggregate.deals}</strong></td><td><span class="\${store.sourceTitle || store.description ? 'cms-status-active' : 'cms-status-warning'}">\${store.sourceTitle || store.description ? 'Đã trích xuất' : 'Thiếu metadata'}</span></td><td>\${formatAdminDate(store.updatedAt || aggregate.latestAt)}</td><td class="row-actions"><button class="table-edit-btn store-edit-btn" type="button" title="Chỉnh sửa Store">✎</button><button class="table-edit-btn store-offers-btn" type="button" title="Xem Offers">→</button></td></tr>\`;
+      }).join('') : '<tr><td class="coupon-no-data" colspan="10">Chưa có dữ liệu Store.</td></tr>';
     }
 
     function renderOfferManager() {
@@ -5122,6 +5297,7 @@ function adminPage(adminEmail = "") {
       if (id.startsWith("deal")) renderDealManager();
     }));
     ["offer-list-store", "offer-list-status"].forEach((id) => document.querySelector("#" + id).addEventListener("change", renderOfferManager));
+    document.querySelector('#store-list-status').addEventListener('change', renderStoreManager);
     ["deal-list-category", "deal-list-status"].forEach((id) => document.querySelector("#" + id).addEventListener("change", renderDealManager));
 
     document.querySelectorAll(".create-coupon-btn").forEach((button) => button.addEventListener("click", () => {
@@ -5170,12 +5346,160 @@ function adminPage(adminEmail = "") {
       if (event.target.closest(".coupon-delete-btn")) deleteOfferFromManager(row.dataset.offerId);
     }));
 
-    storeListBody.addEventListener("click", (event) => {
-      const button = event.target.closest(".store-open-btn");
-      if (!button) return;
-      document.querySelector("#offer-list-store").value = button.dataset.brand;
+    function adminSlug(value) {
+      return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+
+    function populateStoreCategoryOptions(selected = 'Other') {
+      const values = Array.from(new Set(['Other', ...adminCategories.map((item) => item.name), ...currentOffers.map((offer) => offer.category).filter(Boolean)]));
+      const select = storeEditorForm.elements.category;
+      select.innerHTML = values.sort().map((value) => '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + '</option>').join('');
+      select.value = values.includes(selected) ? selected : 'Other';
+    }
+
+    function updateStoreImagePreview() {
+      const image = String(storeEditorForm.elements.image.value || '').trim();
+      const product = String(storeEditorForm.elements.productImage.value || '').trim();
+      storeImagePreviewRow.hidden = !image && !product;
+      storeImagePreview.hidden = !image;
+      if (image) storeImagePreview.src = image;
+      storeProductPreviewWrap.hidden = !product;
+      if (product) storeProductPreview.src = product;
+    }
+
+    function resetStoreEditor(store = null) {
+      storeEditorForm.reset();
+      const item = store || {};
+      storeEditorForm.elements.id.value = item.id || '';
+      storeEditorForm.elements.name.value = item.name || '';
+      storeEditorForm.elements.slug.value = item.slug || '';
+      populateStoreCategoryOptions(item.category || 'Other');
+      storeEditorForm.elements.event.value = item.event || 'Uncategorized';
+      storeEditorForm.elements.sourceUrl.value = item.sourceUrl || '';
+      storeEditorForm.elements.sourceTitle.value = item.sourceTitle || '';
+      storeEditorForm.elements.productImage.value = item.productImage || '';
+      storeEditorForm.elements.image.value = item.image || '';
+      storeEditorForm.elements.approved.checked = item.approved !== false;
+      storeEditorForm.elements.description.value = item.description || '';
+      storeEditorForm.elements.aboutStore.value = item.aboutStore || '';
+      storeEditorForm.elements.howToApply.value = item.howToApply || '';
+      storeEditorForm.elements.faqs.value = item.faqs || '';
+      storeEditorForm.elements.maxOffer.value = Number(item.maxOffer || 0);
+      storeEditorForm.elements.order.value = Number(item.order ?? 9999999);
+      storeEditorForm.elements.metaTitle.value = item.metaTitle || '';
+      storeEditorForm.elements.metaKeywords.value = item.metaKeywords || '';
+      storeEditorForm.elements.metaDescription.value = item.metaDescription || '';
+      document.querySelector('#store-editor-title').textContent = item.id ? 'Sửa store' : 'Thêm mới store';
+      document.querySelector('#store-delete-btn').hidden = !item.id;
+      document.querySelector('#store-offers-link-row').hidden = !item.id;
+      const preview = document.querySelector('#store-preview-btn');
+      preview.hidden = !item.slug;
+      preview.href = item.slug ? '/store/' + encodeURIComponent(item.slug) : '#';
+      document.querySelector('#store-image-file-name').textContent = 'Chưa chọn file';
+      storeImageFile.value = '';
+      updateStoreImagePreview();
+    }
+
+    function openStoreEditor(store) {
+      resetStoreEditor(store);
+      openAdminPanel('store-edit');
+      storeEditorForm.elements.name.focus();
+    }
+
+    const storeCreateTrigger = document.querySelector('[data-admin-panel="store-list"] .create-coupon-btn');
+    storeCreateTrigger?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      openStoreEditor(null);
+    }, true);
+
+    document.querySelector('#store-new-btn').addEventListener('click', () => openStoreEditor(null));
+    storeEditorForm.elements.name.addEventListener('input', () => {
+      if (!storeEditorForm.elements.id.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
+    });
+    storeImageInput.addEventListener('input', updateStoreImagePreview);
+    storeImageFile.addEventListener('change', () => {
+      const file = storeImageFile.files?.[0];
+      if (!file) return;
+      if (file.size > 1_500 * 1024) { storeImageFile.value = ''; return showToast('Ảnh Store phải nhỏ hơn 1.5 MB.'); }
+      const reader = new FileReader();
+      reader.onload = () => {
+        storeImageInput.value = String(reader.result || '');
+        document.querySelector('#store-image-file-name').textContent = file.name;
+        updateStoreImagePreview();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.querySelector('#store-extract-btn').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      const sourceUrl = storeEditorForm.elements.sourceUrl.value.trim();
+      if (!sourceUrl) return showToast('Hãy nhập website nguồn của Store.');
+      button.disabled = true;
+      button.textContent = 'Đang trích xuất...';
+      try {
+        const res = await fetch('/api/admin/stores/extract', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sourceUrl }) });
+        const assets = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(assets.error || 'Không thể trích xuất website.');
+        storeEditorForm.elements.image.value = assets.logo || storeEditorForm.elements.image.value;
+        storeEditorForm.elements.productImage.value = assets.productImage || '';
+        storeEditorForm.elements.sourceTitle.value = assets.sourceTitle || '';
+        if (!storeEditorForm.elements.name.value && assets.sourceTitle) storeEditorForm.elements.name.value = assets.sourceTitle.split(/[|–—-]/)[0].trim();
+        if (!storeEditorForm.elements.slug.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
+        if (!storeEditorForm.elements.description.value) storeEditorForm.elements.description.value = assets.sourceDescription || '';
+        if (!storeEditorForm.elements.aboutStore.value) storeEditorForm.elements.aboutStore.value = assets.sourceDescription || '';
+        if (!storeEditorForm.elements.metaDescription.value) storeEditorForm.elements.metaDescription.value = assets.sourceDescription || '';
+        if (!storeEditorForm.elements.metaTitle.value) storeEditorForm.elements.metaTitle.value = assets.sourceTitle || '';
+        updateStoreImagePreview();
+        showToast('Đã trích xuất logo, ảnh sản phẩm và nội dung nguồn.');
+      } catch (error) { showToast(error.message); }
+      finally { button.disabled = false; button.textContent = '⌁ Trích xuất logo & nội dung'; }
+    });
+
+    storeEditorForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = storeEditorForm.elements.id.value;
+      const payload = Object.fromEntries(new FormData(storeEditorForm).entries());
+      payload.approved = storeEditorForm.elements.approved.checked;
+      payload.image = storeEditorForm.elements.image.value;
+      payload.productImage = storeEditorForm.elements.productImage.value;
+      const res = await fetch(id ? '/api/admin/stores/' + encodeURIComponent(id) : '/api/admin/stores', { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || 'Không thể lưu Store.');
+      await loadOffers();
+      openStoreEditor(result);
+      showToast('Đã lưu Store và giữ nguyên dữ liệu Offer/Deal liên kết.');
+    });
+
+    document.querySelector('#store-delete-btn').addEventListener('click', async () => {
+      const id = storeEditorForm.elements.id.value;
+      if (!id || !confirm('Xóa Store này khỏi CMS? Offer/Deal gốc sẽ được giữ nguyên.')) return;
+      const res = await fetch('/api/admin/stores/' + encodeURIComponent(id), { method: 'DELETE' });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) return showToast(result.error || 'Không thể xóa Store.');
+      await loadOffers();
+      openAdminPanel('store-list');
+      showToast('Đã xóa Store; dữ liệu Offer/Deal vẫn được giữ nguyên.');
+    });
+
+    function showOffersForStore(store) {
+      const select = document.querySelector('#offer-list-store');
+      select.value = store.sourceBrand || store.name;
       renderOfferManager();
-      openAdminPanel("offer-list");
+      openAdminPanel('offer-list');
+    }
+    document.querySelector('#store-view-offers-btn').addEventListener('click', () => {
+      const store = currentStores.find((item) => item.id === storeEditorForm.elements.id.value);
+      if (store) showOffersForStore(store);
+    });
+
+    storeListBody.addEventListener('click', (event) => {
+      const row = event.target.closest('tr[data-store-id]');
+      if (!row) return;
+      const store = currentStores.find((item) => item.id === row.dataset.storeId);
+      if (!store) return;
+      if (event.target.closest('.store-offers-btn')) showOffersForStore(store);
+      else if (event.target.closest('.store-edit-btn')) openStoreEditor(store);
     });
 
     document.querySelectorAll(".batch-delete-offers-btn").forEach((button) => button.addEventListener("click", async () => {
@@ -5448,9 +5772,11 @@ function adminPage(adminEmail = "") {
     }
 
     async function loadOffers() {
-      const res = await fetch("/api/offers");
+      const [res, storesRes] = await Promise.all([fetch("/api/offers"), fetch('/api/admin/stores')]);
       const offers = await res.json();
+      const stores = storesRes.ok ? await storesRes.json() : [];
       currentOffers = Array.isArray(offers) ? offers : [];
+      currentStores = Array.isArray(stores) ? stores : [];
       syncCategoriesFromOffers(currentOffers);
       renderCouponManagers();
       renderCmsContentViews();
@@ -5951,6 +6277,9 @@ function dealPage(offer) {
 }
 
 function storePage(group) {
+  const storeRecord = group.store || {};
+  const maxOffer = Math.max(0, Number(storeRecord.maxOffer) || 0);
+  const visibleItems = maxOffer ? group.items.slice(0, maxOffer) : group.items;
   const formatStoreDiscount = (value) => String(value || "Deal").trim()
     .replace(/^([$£€])(\d+(?:\.\d+)?)%\s*off$/i, "$1$2 OFF");
   const getStoreDiscountScore = (value) => {
@@ -5962,31 +6291,36 @@ function storePage(group) {
     return text.includes("free") ? 20 : 0;
   };
   const brand = escapeHtml(group.brand);
-  const storePath = getOfferStorePath(group.brand);
+  const storePath = `/store/${encodeURIComponent(storeRecord.slug || getOfferStoreSlug(group.brand))}`;
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
-  const categoryProfile = getStoreCategoryProfile(group);
-  const description = escapeHtml(`Compare ${group.items.length} verified ${group.brand} coupon codes and ${categoryProfile.toLowerCase()} deals. Review code requirements, product scope, source details, and expiration dates when supplied.`);
+  const categoryProfile = storeRecord.category || getStoreCategoryProfile(group);
+  const description = escapeHtml(storeRecord.metaDescription || storeRecord.description || `Compare ${group.items.length} verified ${group.brand} coupon codes and ${categoryProfile.toLowerCase()} deals. Review code requirements, product scope, source details, and expiration dates when supplied.`);
   const structuredData = jsonLdScript(storeStructuredData(group));
-  const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
-  const dealCount = group.items.length - codeCount;
-  const primaryOffer = group.items.find((offer) => offer.logo) || group.items[0] || {};
-  const bestOfferItem = [...group.items].sort((a, b) => getStoreDiscountScore(b.discount) - getStoreDiscountScore(a.discount))[0];
+  const codeCount = visibleItems.filter((offer) => isUsableCouponCode(offer.code)).length;
+  const dealCount = visibleItems.length - codeCount;
+  const primaryOffer = visibleItems.find((offer) => offer.logo) || visibleItems[0] || {};
+  const bestOfferItem = [...visibleItems].sort((a, b) => getStoreDiscountScore(b.discount) - getStoreDiscountScore(a.discount))[0];
   const bestOffer = escapeHtml(formatStoreDiscount(bestOfferItem?.discount || "Best Deal"));
-  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(primaryOffer.link || "#"));
+  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(primaryOffer.link || storeRecord.sourceUrl || "#"));
   const domain = escapeHtml(getOfferLogoHost(primaryOffer));
-  const logo = escapeHtml(primaryOffer.logo || "");
+  const logo = escapeHtml(storeRecord.image || primaryOffer.logo || "");
   const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
   const sourceDescriptions = [...new Set(group.items.map((offer) => String(offer.sourceDescription || offer.review || "").trim()).filter(Boolean))];
-  const aboutCopy = escapeHtml(sourceDescriptions.slice(0, 4).join(" ") || `The current ${group.brand} records cover ${categoryProfile.toLowerCase()} promotions available through the store's original website.`);
+  const aboutCopy = escapeHtml(storeRecord.aboutStore || storeRecord.description || sourceDescriptions.slice(0, 4).join(" ") || `The current ${group.brand} records cover ${categoryProfile.toLowerCase()} promotions available through the store's original website.`);
+  const howToApplyCopy = escapeHtml(storeRecord.howToApply || '');
   const storeCategory = escapeHtml(categoryProfile);
-  const faqs = getStoreFaq(group);
+  const customFaqs = String(storeRecord.faqs || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
+    const lines = block.split(/\n/).map((line) => line.replace(/^(?:Q|A)[:.)-]?\s*/i, '').trim()).filter(Boolean);
+    return lines.length > 1 ? { question: lines[0], answer: lines.slice(1).join(' ') } : null;
+  }).filter(Boolean);
+  const faqs = customFaqs.length ? customFaqs : getStoreFaq(group);
   const rating = getStoreRating(group);
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
-  const productCoverage = group.items.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim())}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
-  const offerRows = group.items.map((offer) => {
+  const productCoverage = visibleItems.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim())}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
+  const offerRows = visibleItems.map((offer) => {
     const sourceTitle = String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim();
     const sourceSummary = getStoreOfferDescription(offer, group.brand);
     const title = escapeHtml(sourceTitle);
@@ -6021,9 +6355,9 @@ function storePage(group) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="index, follow" />
-  <title>${brand} Coupons and Promo Codes | AloCoupon</title>
+  <title>${escapeHtml(storeRecord.metaTitle || `${group.brand} Coupons and Promo Codes | AloCoupon`)}</title>
   <meta name="description" content="${description}" />
-  <meta name="keywords" content="${brand} coupons, ${brand} promo codes, ${brand} deals, ${storeCategory} discounts" />
+  <meta name="keywords" content="${escapeHtml(storeRecord.metaKeywords || `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${categoryProfile} discounts`)}" />
   <meta property="og:title" content="${brand} Coupons and Promo Codes" />
   <meta property="og:description" content="${description}" />
   <meta property="og:url" content="${storeUrl}" />
@@ -6205,7 +6539,7 @@ function storePage(group) {
       </aside>
       <section class="store-reference-content">
         <h1>${brand} Coupons and Promo Codes</h1>
-        <p class="brand-copy">Compare ${group.items.length} verified ${brand} coupon codes, promo codes, and ${storeCategory} discounts. Product names, eligibility notes, and descriptions below come from the original product link or AloCoupon's source API record. Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
+        <p class="brand-copy">${escapeHtml(storeRecord.description || `Compare ${visibleItems.length} verified ${group.brand} coupon codes, promo codes, and ${categoryProfile} discounts. Product names, eligibility notes, and descriptions below come from the original product link or AloCoupon's source API record.`)} Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
@@ -6234,6 +6568,7 @@ function storePage(group) {
     </section>
     <section class="store-how-card">
       <h2>How to apply ${brand} coupon codes</h2>
+      ${howToApplyCopy ? `<p>${howToApplyCopy}</p>` : ''}
       <div class="store-steps">
         <article><b>1</b><h3>Choose an offer</h3><p>Select a verified deal or coupon that matches the product you want.</p></article>
         <article><b>2</b><h3>Open the original link</h3><p>Click Get Deal or Get Code to continue to the original product page.</p></article>
@@ -6533,6 +6868,59 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
       sendJson(res, 200, getAdminDashboardData());
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/admin/stores') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      sendJson(res, 200, readStores());
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/admin/stores/extract') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      const payload = JSON.parse(await readBody(req, 50_000));
+      if (!String(payload.sourceUrl || '').trim()) throw new Error('Store website is required.');
+      sendJson(res, 200, await extractStoreAssets(payload.sourceUrl));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/admin/stores') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      const stores = readStores();
+      const store = normalizeStore(JSON.parse(await readBody(req, 2_500_000)));
+      if (stores.some((item) => item.slug === store.slug)) throw new Error('Store slug already exists.');
+      stores.push(store);
+      writeStores(stores);
+      sendJson(res, 201, store);
+      return;
+    }
+
+    const adminStoreMatch = url.pathname.match(/^\/api\/admin\/stores\/([^/]+)$/);
+    if (req.method === 'PUT' && adminStoreMatch) {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      const stores = readStores();
+      const index = stores.findIndex((item) => item.id === decodeURIComponent(adminStoreMatch[1]));
+      if (index < 0) return sendJson(res, 404, { error: 'Store not found.' });
+      const previous = stores[index];
+      const store = normalizeStore(JSON.parse(await readBody(req, 2_500_000)), previous);
+      if (stores.some((item, itemIndex) => itemIndex !== index && item.slug === store.slug)) throw new Error('Store slug already exists.');
+      stores[index] = store;
+      writeStores(stores);
+      sendJson(res, 200, store);
+      return;
+    }
+
+    if (req.method === 'DELETE' && adminStoreMatch) {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      const allStores = readJsonArrayFile(storesFile);
+      const store = allStores.find((item) => item.id === decodeURIComponent(adminStoreMatch[1]));
+      if (!store) return sendJson(res, 404, { error: 'Store not found.' });
+      store.deleted = true;
+      store.approved = false;
+      store.updatedAt = new Date().toISOString();
+      writeStores(allStores);
+      sendJson(res, 200, { ok: true });
       return;
     }
 

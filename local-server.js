@@ -2765,6 +2765,7 @@ const defaultSiteSettings = {
   seoTitle: "AloCoupon - Verified Coupon Codes & Deals",
   seoDescription: "Verified coupon codes, promotions and deals from trusted partner stores.",
   seoKeywords: "coupon codes, deals, promotions",
+  googleAnalyticsCode: "",
   couponDescription: "Don't miss out! Browse verified coupons for {{store_name}} and save before checkout.",
   howToApply: "Choose an offer, copy the coupon code, visit the store and apply the code at checkout.",
   widgetTitle: "Get deals by email",
@@ -2851,6 +2852,47 @@ function sanitizeSiteSettings(input) {
 function writeSiteSettings(settings) {
   ensureDataFile();
   fs.writeFileSync(siteSettingsFile, JSON.stringify(settings, null, 2));
+}
+
+function getGoogleTrackingIds(settings = {}) {
+  const source = String(settings.googleAnalyticsCode || '');
+  const gtagIds = [...new Set(source.match(/\b(?:G-[A-Z0-9]{6,}|GT-[A-Z0-9]{6,}|AW-\d{6,}|UA-\d+-\d+)\b/gi) || [])].map((id) => id.toUpperCase());
+  const managerIds = [...new Set(source.match(/\bGTM-[A-Z0-9]{4,}\b/gi) || [])].map((id) => id.toUpperCase());
+  return { gtagIds, managerIds };
+}
+
+function getGoogleAnalyticsHead(settings = {}) {
+  const { gtagIds, managerIds } = getGoogleTrackingIds(settings);
+  const gtag = gtagIds.length ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gtagIds[0])}"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());${gtagIds.map((id) => `gtag('config',${JSON.stringify(id)});`).join('')}</script>` : '';
+  const manager = managerIds.map((id) => `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${JSON.stringify(id)});</script>`).join('\n');
+  return [gtag, manager].filter(Boolean).join('\n');
+}
+
+function getGoogleAnalyticsBody(settings = {}) {
+  const { managerIds } = getGoogleTrackingIds(settings);
+  return managerIds.map((id) => `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(id)}" height="0" width="0" style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>`).join('\n');
+}
+
+function renderHomePageHtml() {
+  const settings = readSiteSettings();
+  const title = escapeHtml(settings.seoTitle || defaultSiteSettings.seoTitle);
+  const description = escapeHtml(settings.seoDescription || defaultSiteSettings.seoDescription);
+  const keywords = escapeHtml(settings.seoKeywords || defaultSiteSettings.seoKeywords);
+  let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  html = html.replace(/<meta\s+name="description"[\s\S]*?\/>/i, `<meta name="description" content="${description}" />`);
+  html = html.replace(/<meta\s+property="og:title"[^>]*\/>/i, `<meta property="og:title" content="${title}" />`);
+  html = html.replace(/<meta\s+property="og:description"[\s\S]*?\/>/i, `<meta property="og:description" content="${description}" />`);
+  html = html.replace(/<meta\s+name="twitter:title"[^>]*\/>/i, `<meta name="twitter:title" content="${title}" />`);
+  html = html.replace(/<meta\s+name="twitter:description"[\s\S]*?\/>/i, `<meta name="twitter:description" content="${description}" />`);
+  if (/<meta\s+name="keywords"/i.test(html)) html = html.replace(/<meta\s+name="keywords"[^>]*\/>/i, `<meta name="keywords" content="${keywords}" />`);
+  else html = html.replace(/(<meta\s+name="robots"[^>]*\/>)/i, `<meta name="keywords" content="${keywords}" />\n    $1`);
+  const analyticsHead = getGoogleAnalyticsHead(settings);
+  const analyticsBody = getGoogleAnalyticsBody(settings);
+  if (analyticsHead) html = html.replace('</head>', `${analyticsHead}\n  </head>`);
+  if (analyticsBody) html = html.replace(/<body([^>]*)>/i, (match) => `${match}\n${analyticsBody}`);
+  return html;
 }
 
 function readAdminUsers() {
@@ -4612,11 +4654,12 @@ function adminPage(adminEmail = "") {
     </section>
 
     <section class="cms-panel" data-admin-panel="settings-seo" hidden>
-      <div class="cms-page-heading"><div><h1>Cấu hình SEO</h1><p>Thiết lập tiêu đề và mô tả tìm kiếm.</p></div></div>
+      <div class="cms-page-heading"><div><h1>Cấu hình SEO</h1><p>Thiết lập metadata tìm kiếm và Google Analytics cho toàn bộ website.</p></div></div>
       <form class="cms-settings-form" data-settings-form>
         <div class="cms-field-row"><label>Meta title</label><input name="seoTitle" type="text" maxlength="160" /></div>
+        <div class="cms-field-row cms-description-row"><label>Meta keywords</label><textarea name="seoKeywords" rows="4" maxlength="1000" placeholder="coupon codes, promo codes, online deals..."></textarea></div>
         <div class="cms-field-row"><label>Meta description</label><textarea name="seoDescription" rows="5" maxlength="500"></textarea></div>
-        <div class="cms-field-row"><label>Keywords</label><input name="seoKeywords" type="text" /></div>
+        <div class="cms-field-row cms-description-row"><label>Google Analytics Code</label><div><textarea name="googleAnalyticsCode" rows="20" maxlength="20000" placeholder="Dán mã Google tag (gtag.js), Measurement ID G-... hoặc Google Tag Manager GTM-..."></textarea><small class="cms-field-help cms-seo-help">Hệ thống chỉ trích xuất các ID Google hợp lệ (G-, GT-, AW-, UA-, GTM-) và tự tạo script an toàn trên toàn site.</small></div></div>
         <div class="cms-settings-actions"><button class="cms-btn cms-btn-primary" type="submit">▣ Cập nhật</button></div>
       </form>
     </section>
@@ -6172,6 +6215,10 @@ function serveStatic(req, res, pathname) {
       "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
       "X-Frame-Options": "SAMEORIGIN",
     });
+    if (safePath === '/index.html') {
+      res.end(renderHomePageHtml());
+      return;
+    }
     fs.createReadStream(filePath).pipe(res);
   });
 }
@@ -6219,6 +6266,9 @@ function dealPage(offer) {
   const safeAffiliateLink = escapeHtml(affiliateLink);
   const dealUrl = escapeHtml(getAbsoluteUrl(getOfferDealPath(offer)));
   const structuredData = jsonLdScript(dealStructuredData(offer));
+  const siteSettings = readSiteSettings();
+  const analyticsHead = getGoogleAnalyticsHead(siteSettings);
+  const analyticsBody = getGoogleAnalyticsBody(siteSettings);
 
   return `<!doctype html>
 <html lang="en">
@@ -6228,9 +6278,11 @@ function dealPage(offer) {
   <meta name="robots" content="index, follow" />
   <title>${title} | AloCoupon</title>
   <meta name="description" content="${review}" />
+  <meta name="keywords" content="${escapeHtml(`${offer.brand || ''}, ${offer.category || ''}, ${siteSettings.seoKeywords || ''}`)}" />
   <link rel="canonical" href="${dealUrl}" />
   <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="${escapeHtml(getAbsoluteUrl("/rss.xml"))}" />
   ${structuredData}
+  ${analyticsHead}
   <link rel="stylesheet" href="/styles.css" />
   <style>
     body { background: #f4fbf8; color: #1f2937; font-family: Arial, sans-serif; margin: 0; }
@@ -6250,6 +6302,7 @@ function dealPage(offer) {
   </style>
 </head>
 <body>
+  ${analyticsBody}
   <main class="deal-landing">
     <section class="deal-landing-card">
       <div class="deal-landing-badge">
@@ -6278,6 +6331,9 @@ function dealPage(offer) {
 
 function storePage(group) {
   const storeRecord = group.store || {};
+  const siteSettings = readSiteSettings();
+  const analyticsHead = getGoogleAnalyticsHead(siteSettings);
+  const analyticsBody = getGoogleAnalyticsBody(siteSettings);
   const maxOffer = Math.max(0, Number(storeRecord.maxOffer) || 0);
   const visibleItems = maxOffer ? group.items.slice(0, maxOffer) : group.items;
   const formatStoreDiscount = (value) => String(value || "Deal").trim()
@@ -6364,6 +6420,7 @@ function storePage(group) {
   <link rel="canonical" href="${storeUrl}" />
   <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="${escapeHtml(getAbsoluteUrl("/rss.xml"))}" />
   ${structuredData}
+  ${analyticsHead}
   <link rel="stylesheet" href="/styles.css" />
   <style>
     :root { --store-blue: #087dbd; --store-navy: #11334b; --store-green: #0a9b67; --store-line: #e2e8ee; --store-muted: #667786; }
@@ -6498,6 +6555,7 @@ function storePage(group) {
   </style>
 </head>
 <body>
+  ${analyticsBody}
   <header class="brand-topbar">
     <div class="brand-topbar-inner">
       <a class="brand-site-logo" href="/">Alo<span>Coupon</span></a>
@@ -6852,7 +6910,8 @@ const server = http.createServer(async (req, res) => {
         siteName: settings.siteName, slogan: settings.slogan, homeTitle: settings.homeTitle,
         homeDescription: settings.homeDescription, logoData: settings.logoData,
         faviconData: settings.faviconData, seoTitle: settings.seoTitle,
-        seoDescription: settings.seoDescription, couponDescription: settings.couponDescription,
+        seoDescription: settings.seoDescription, seoKeywords: settings.seoKeywords,
+        couponDescription: settings.couponDescription,
         howToApply: settings.howToApply, menuItems: settings.menuItems,
         widgetTitle: settings.widgetTitle, widgetContent: settings.widgetContent,
       });

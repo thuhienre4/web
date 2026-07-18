@@ -4580,6 +4580,15 @@ async function applyPublicSiteSettings() {
       document.querySelector('meta[property="og:description"]')?.setAttribute("content", settings.seoDescription);
       document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", settings.seoDescription);
     }
+    if (settings.seoKeywords) {
+      let metaKeywords = document.querySelector('meta[name="keywords"]');
+      if (!metaKeywords) {
+        metaKeywords = document.createElement('meta');
+        metaKeywords.name = 'keywords';
+        document.head.append(metaKeywords);
+      }
+      metaKeywords.content = settings.seoKeywords;
+    }
     const heroTitle = document.querySelector("#home h1");
     const heroDescription = document.querySelector("#home .hero-copy");
     const taglines = document.querySelectorAll(".header-tagline, .teela-home-slogan");

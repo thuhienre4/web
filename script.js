@@ -4086,12 +4086,24 @@ function renderLandingHero(items) {
     activeHeroStoreIndex = (index + stores.length) % stores.length;
     const { item, brand, key } = stores[activeHeroStoreIndex];
     const image = banner.querySelector("img");
+    const visual = banner.querySelector(".home-banner-visual");
     const label = banner.querySelector(".home-banner-copy small");
     const title = banner.querySelector(".home-banner-copy strong");
-    const source = item.landingImage || item.productImage || item.logo;
-    banner.classList.toggle("uses-product-image", Boolean(!item.landingImage && item.productImage));
+    const foregroundSource = item.productImage || item.landingImage || item.logo;
+    const backgroundSource = item.landingImage || item.productImage || item.logo;
+    banner.classList.toggle("uses-product-image", Boolean(item.productImage));
+    if (visual) {
+      const safeBackground = String(backgroundSource || "").replace(/["\\]/g, "\\$&");
+      visual.style.setProperty("--banner-background", safeBackground ? `url("${safeBackground}")` : "none");
+    }
     if (image) {
-      image.src = source;
+      image.onerror = () => {
+        const fallbackSource = item.landingImage || item.logo;
+        if (fallbackSource && image.src !== new URL(fallbackSource, window.location.href).href) {
+          image.src = fallbackSource;
+        }
+      };
+      image.src = foregroundSource;
       image.alt = `${brand} product deal`;
       image.decoding = "async";
       image.fetchPriority = "high";

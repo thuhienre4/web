@@ -5471,6 +5471,59 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
   .admin-mode .admin-dashboard-cards { grid-template-columns: 1fr; }
 }
 
+/* Sharp banner treatment: high-resolution product art stays in the foreground;
+   smaller brand landing art is used only as an intentionally softened backdrop. */
+body.teela-inspired-theme:not(.admin-mode) .home-banner-visual {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #edf1f4;
+}
+
+body.teela-inspired-theme:not(.admin-mode) .home-banner-visual::before {
+  position: absolute;
+  z-index: -2;
+  inset: -22px;
+  background-image: var(--banner-background, none);
+  background-position: center;
+  background-size: cover;
+  content: "";
+  filter: blur(14px) saturate(0.9);
+  opacity: 0.4;
+  transform: scale(1.04);
+}
+
+body.teela-inspired-theme:not(.admin-mode) .home-banner-visual::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.88));
+  content: "";
+}
+
+body.teela-inspired-theme:not(.admin-mode) .home-feature-banner.uses-product-image img {
+  position: relative;
+  z-index: 1;
+  width: auto;
+  max-width: min(82%, 920px);
+  height: 88%;
+  max-height: 620px;
+  padding: 0;
+  object-fit: contain;
+  background: transparent;
+  filter: drop-shadow(0 12px 20px rgba(25, 35, 45, 0.18));
+  image-rendering: auto;
+}
+
+@media (max-width: 680px) {
+  body.teela-inspired-theme:not(.admin-mode) .home-feature-banner.uses-product-image img {
+    max-width: 88%;
+    height: 86%;
+  }
+}
+
 /* Final public overrides use higher specificity than the legacy theme rules. */
 html,
 body.teela-inspired-theme:not(.admin-mode) {

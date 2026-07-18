@@ -4020,7 +4020,7 @@ function adminPage(adminEmail = "") {
 <body class="admin-mode">
   <div class="admin-cms-shell">
     <aside class="cms-sidebar" id="cms-sidebar">
-      <a class="cms-brand" href="#dashboard"><span class="cms-brand-mark">A</span><strong>AloCMS</strong></a>
+      <a class="cms-brand" href="#dashboard"><span class="cms-brand-mark">A</span><strong>AloCoupon CMS</strong></a>
       <p class="cms-menu-label">QUẢN LÝ NỘI DUNG</p>
       <nav class="cms-nav" aria-label="Admin navigation">
         <button class="cms-nav-item is-active" type="button" data-admin-target="dashboard"><span>⌂</span> Tổng quan</button>
@@ -4032,7 +4032,10 @@ function adminPage(adminEmail = "") {
           <button type="button" data-admin-target="deal-list"><span>›</span> Deal</button>
           <button type="button" data-admin-target="bulk-offer-import"><span>⇧</span> Upload Deal & Coupon</button>
         </div>
-        <button class="cms-nav-item" type="button" data-admin-target="projects"><span>⇧</span> Code & dự án</button>
+        <button class="cms-nav-item" type="button" data-admin-target="news"><span>▤</span> Quản lý tin tức</button>
+        <button class="cms-nav-item" type="button" data-admin-target="content"><span>□</span> Trang nội dung</button>
+        <button class="cms-nav-item" type="button" data-admin-target="widgets"><span>▧</span> Widget</button>
+        <button class="cms-nav-item" type="button" data-admin-target="menu"><span>☰</span> Menu</button>
       </nav>
       <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
       <nav class="cms-nav cms-system-nav" aria-label="System navigation">
@@ -4050,7 +4053,6 @@ function adminPage(adminEmail = "") {
           <button type="button" data-admin-target="settings-ads"><span>›</span> Cấu hình Ads</button>
         </div>
       </nav>
-      <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
       <div class="cms-user-card"><span class="cms-user-avatar">${escapeHtml(adminEmail).slice(0, 1).toUpperCase()}</span><span><strong>Administrator</strong><small>${escapeHtml(adminEmail)}</small></span></div>
     </aside>
     <div class="cms-workspace">
@@ -4086,12 +4088,15 @@ function adminPage(adminEmail = "") {
 
         <section class="cms-panel" data-admin-panel="news" hidden>
           <div class="cms-page-heading"><div><h1>Quản lý tin tức</h1><p>Tạo và quản lý các bài viết, tin tức trên AloCoupon.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Tin tức</strong></div></div>
-          <div class="cms-placeholder"><span>▤</span><h2>Khu vực quản lý tin tức</h2><p>Nội dung bài viết sẽ được quản lý tại đây.</p><button class="cms-btn cms-btn-info" type="button">⊕ Thêm bài viết</button></div>
+          <div class="category-toolbar"><div class="category-search"><input id="news-list-search" type="search" placeholder="Tìm theo tiêu đề hoặc store" /><button class="cms-btn cms-btn-primary" id="news-list-search-btn" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-info" data-admin-target="offers" type="button">⊕ Thêm nội dung từ API</button></div></div>
+          <div class="cms-source-note">Nguồn dữ liệu: <strong>/api/offers</strong> của AloCoupon — không sử dụng bài viết từ TeelaCodes.</div>
+          <div class="category-table-wrap"><table class="category-table"><thead><tr><th>#</th><th>Tiêu đề</th><th>Store</th><th>Danh mục</th><th>Loại</th><th>Ngày đăng</th><th></th></tr></thead><tbody id="news-list-body"></tbody></table></div>
         </section>
 
         <section class="cms-panel" data-admin-panel="content" hidden>
           <div class="cms-page-heading"><div><h1>Trang nội dung</h1><p>Quản lý các trang giới thiệu, chính sách và nội dung tĩnh.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Trang nội dung</strong></div></div>
-          <div class="cms-placeholder"><span>□</span><h2>Quản lý trang nội dung</h2><p>Các trang tĩnh của website sẽ hiển thị tại đây.</p><button class="cms-btn cms-btn-info" type="button">⊕ Thêm trang mới</button></div>
+          <div class="cms-source-note">Các trang dưới đây ánh xạ trực tiếp tới cấu hình website AloCoupon hiện tại.</div>
+          <div class="category-table-wrap"><table class="category-table"><thead><tr><th>#</th><th>Trang / khu vực</th><th>Trường dữ liệu</th><th>Nội dung hiện tại</th><th>Trạng thái</th><th></th></tr></thead><tbody id="content-page-list"></tbody></table></div>
         </section>
 
         <section class="cms-panel coupon-manager-panel" data-admin-panel="store-list" hidden>
@@ -4384,6 +4389,8 @@ function adminPage(adminEmail = "") {
     const storeListBody = document.querySelector("#store-list-body");
     const offerListBody = document.querySelector("#offer-list-body");
     const dealListBody = document.querySelector("#deal-list-body");
+    const newsListBody = document.querySelector("#news-list-body");
+    const contentPageList = document.querySelector("#content-page-list");
     const bulkDealImportForm = document.querySelector("#bulk-deal-import-form");
     const bulkDealFileInput = document.querySelector("#bulk-deal-file");
     const bulkDealLogoInput = document.querySelector("#bulk-deal-logo");
@@ -4515,12 +4522,10 @@ function adminPage(adminEmail = "") {
       const data = await res.json();
       const totals = data.totals || {};
       const cards = [
-        ["Tổng dữ liệu", totals.offers || 0, "Deal & Coupon", "offer-list"],
         ["Coupon code", totals.coupons || 0, "Mã giảm giá", "offer-list"],
         ["Deal", totals.deals || 0, "Ưu đãi không mã", "deal-list"],
         ["Store", totals.stores || 0, "Thương hiệu", "store-list"],
         ["Subscribers", totals.activeSubscribers || 0, "Đã xác nhận", "subscribers"],
-        ["Đang hiển thị", totals.visible || 0, "Offer công khai", "offer-list"],
       ];
       adminDashboardCards.innerHTML = cards.map((card) => '<button class="admin-stat-card" type="button" data-admin-target="' + card[3] + '"><span>' + escapeHtml(card[0]) + '</span><strong>' + Number(card[1]) + '</strong><small>' + escapeHtml(card[2]) + '</small></button>').join("");
       adminDashboardCards.querySelectorAll("[data-admin-target]").forEach((button) => button.addEventListener("click", () => openAdminPanel(button.dataset.adminTarget)));
@@ -4589,6 +4594,22 @@ function adminPage(adminEmail = "") {
       renderOfferManager();
       renderDealManager();
       updateCouponSelectionCounts();
+    }
+
+    function renderCmsContentViews() {
+      const query = String(document.querySelector("#news-list-search")?.value || "").trim().toLowerCase();
+      const newsItems = currentOffers.filter((offer) => !query || [offer.title, offer.brand, offer.category, offer.review].some((value) => String(value || "").toLowerCase().includes(query))).slice(0, 100);
+      newsListBody.innerHTML = newsItems.length ? newsItems.map((offer, index) => '<tr><td class="row-number">' + (index + 1) + '</td><td><strong>' + escapeHtml(offer.title) + '</strong><small class="coupon-code-note">' + escapeHtml(offer.review || "") + '</small></td><td>' + escapeHtml(offer.brand) + '</td><td>' + escapeHtml(offer.category || "Other") + '</td><td><span class="cms-content-type">' + (offer.type === "deal" ? "Deal" : "Coupon") + '</span></td><td>' + formatAdminDate(offer.createdAt) + '</td><td><button class="table-edit-btn cms-news-edit" data-offer-id="' + escapeHtml(offer.id) + '" type="button">✎</button></td></tr>').join("") : '<tr><td class="coupon-no-data" colspan="7">Không có dữ liệu phù hợp từ API AloCoupon.</td></tr>';
+
+      const contentRows = [
+        ["Trang chủ", "homeTitle", currentSettings.homeTitle, "settings-general"],
+        ["Mô tả trang chủ", "homeDescription", currentSettings.homeDescription, "settings-general"],
+        ["Mô tả coupon", "couponDescription", currentSettings.couponDescription, "settings-content"],
+        ["Hướng dẫn sử dụng mã", "howToApply", currentSettings.howToApply, "settings-content"],
+        ["SEO website", "seoDescription", currentSettings.seoDescription, "settings-seo"],
+        ["Widget đăng ký", "widgetContent", currentSettings.widgetContent, "widgets"],
+      ];
+      contentPageList.innerHTML = contentRows.map((row, index) => '<tr><td class="row-number">' + (index + 1) + '</td><td><strong>' + escapeHtml(row[0]) + '</strong></td><td><code>' + escapeHtml(row[1]) + '</code></td><td class="cms-content-preview">' + escapeHtml(String(row[2] || "Chưa thiết lập").slice(0, 180)) + '</td><td><span class="' + (row[2] ? "cms-status-active" : "cms-status-disabled") + '">' + (row[2] ? "Hiển thị" : "Trống") + '</span></td><td><button class="table-edit-btn cms-content-edit" data-settings-panel="' + row[3] + '" type="button">✎</button></td></tr>').join("");
     }
 
     function parseBulkDealCsv(text) {
@@ -5199,6 +5220,7 @@ function adminPage(adminEmail = "") {
       currentOffers = Array.isArray(offers) ? offers : [];
       syncCategoriesFromOffers(currentOffers);
       renderCouponManagers();
+      renderCmsContentViews();
       count.textContent = currentOffers.length;
       list.innerHTML = currentOffers.length ? currentOffers.map((offer) => \`
         <article class="admin-offer-card">
@@ -5453,7 +5475,21 @@ function adminPage(adminEmail = "") {
       if (!res.ok) return;
       currentSettings = await res.json();
       syncSettingsForms();
+      renderCmsContentViews();
     }
+
+    document.querySelector("#news-list-search-btn")?.addEventListener("click", renderCmsContentViews);
+    document.querySelector("#news-list-search")?.addEventListener("input", renderCmsContentViews);
+    newsListBody?.addEventListener("click", (event) => {
+      const button = event.target.closest(".cms-news-edit");
+      if (!button) return;
+      const offer = currentOffers.find((item) => item.id === button.dataset.offerId);
+      if (offer) { fillForm(offer); openAdminPanel("offers"); }
+    });
+    contentPageList?.addEventListener("click", (event) => {
+      const button = event.target.closest(".cms-content-edit");
+      if (button) openAdminPanel(button.dataset.settingsPanel);
+    });
 
     document.querySelectorAll("[data-setting-file]").forEach((input) => {
       input.addEventListener("change", () => {

@@ -134,7 +134,7 @@
     </script>
     <link rel="stylesheet" href="styles.css?v=20260715-2" />
   </head>
-  <body>
+  <body class="teela-inspired-theme">
     <a class="skip-link" href="#home">Skip to main content</a>
     <div class="scroll-progress" aria-hidden="true"><span></span></div>
     <header class="site-header">
@@ -190,6 +190,20 @@
     <main id="home" tabindex="-1">
       <section class="hero reveal">
         <div class="container hero-inner">
+          <div class="teela-home-brand" aria-label="AloCoupon">
+            <span class="brand-mark" aria-hidden="true">
+              <span class="brand-ticket-cut brand-ticket-cut-left"></span>
+              <span class="brand-ticket-cut brand-ticket-cut-right"></span>
+              <span class="brand-ticket-line"></span>
+              <span class="brand-ticket-percent">%</span>
+            </span>
+            <span class="brand-word"><span>Alo</span><span>Coupon</span></span>
+          </div>
+          <p class="teela-home-slogan">Your Trusted Marketplace for Coupons &amp; Deals</p>
+          <form class="search-box teela-home-search" role="search">
+            <input type="search" placeholder="Search Stores" aria-label="Search Stores" />
+            <button type="submit" aria-label="Search Stores">Search</button>
+          </form>
           <p class="eyebrow">Verified by AloCoupon</p>
           <h1>Codes that actually work.</h1>
           <p class="hero-copy">
@@ -462,7 +476,7 @@
 
       <section class="section container reveal" id="stores">
         <div class="section-title">
-          <h2 data-i18n="stores.title">All Stores</h2>
+          <h2 data-i18n="stores.title">Popular Store</h2>
           <a href="#deals" data-i18n="stores.link">View All Deals</a>
         </div>
         <p class="section-intro" data-i18n="stores.intro">Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.</p>

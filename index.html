@@ -132,7 +132,7 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="styles.css?v=20260718-4" />
+    <link rel="stylesheet" href="styles.css?v=20260718-5" />
   </head>
   <body class="teela-inspired-theme">
     <a class="skip-link" href="#home">Skip to main content</a>
@@ -543,20 +543,19 @@
       <section class="section container reveal" id="feature-post">
         <div class="section-title">
           <h2>Feature Post</h2>
-          <a href="#deals">View All Deals</a>
         </div>
-        <article class="feature-post-card">
+        <div class="feature-post-grid" id="feature-post-grid" aria-live="polite"><article class="feature-post-card">
           <div class="feature-post-media">
-            <img src="assets/affiliate-hero.png" width="1731" height="909" alt="AI coupon and review marketplace" loading="lazy" decoding="async" />
+            <img src="assets/affiliate-hero.png" width="1731" height="909" alt="AloCoupon featured review" loading="lazy" decoding="async" />
           </div>
           <div class="feature-post-copy">
             <h3>Collov AI Review: The Smart AI Tool for Virtual Staging and Interior Design</h3>
             <p>
               Discover how AI shopping tools, product reviews, and coupon signals help visitors compare offers before choosing a product.
             </p>
-            <a class="read-link" href="#deals">View Deal</a>
+            <a class="read-link" href="#deals">Continue Reading</a>
           </div>
-        </article>
+        </article></div>
       </section>
 
       <section class="section container reveal" id="affiliate-preview" aria-labelledby="affiliate-preview-title" hidden>
@@ -593,22 +592,23 @@
         <div class="section-title">
           <h2 data-i18n="categories.title">All Categories</h2>
         </div>
-        <p class="section-intro" data-i18n="categories.intro">Find deals by shopping intent, product type, or affiliate niche.</p>
         <div class="category-cloud">
-          <a href="#deals" data-deal-category="all">All Deals</a>
-          <a href="#deals" data-deal-category="fashion">Fashion</a>
-          <a href="#deals" data-deal-category="health-and-wellness">Health & Wellness</a>
-          <a href="#deals" data-deal-category="beauty-and-spa">Beauty & Spa</a>
-          <a href="#deals" data-deal-category="pets">Pets</a>
-          <a href="#deals" data-deal-category="home-goods">Home Goods</a>
-          <a href="#deals" data-deal-category="safety-and-emergency">Safety & Emergency</a>
-          <a href="#deals" data-deal-category="gifts">Gifts</a>
-          <a href="#deals" data-deal-category="software">Software</a>
+          <a href="#deals" data-deal-category="software">AI Tools &amp; SaaS</a>
+          <a href="#deals" data-deal-category="beauty-and-spa">Beauty &amp; Fragrance</a>
+          <a href="#deals" data-deal-category="gifts">Creator &amp; Music Tools</a>
+          <a href="#deals" data-deal-category="fashion">Fashion &amp; Accessories</a>
+          <a href="#deals" data-deal-category="health-and-wellness">Food, Drinks &amp; Health</a>
+          <a href="#deals" data-deal-category="home-goods">Home &amp; Garden</a>
+          <a href="#deals" data-deal-category="pets">Kids, Babies &amp; Pets</a>
+          <a href="#deals" data-deal-category="safety-and-emergency">Tech &amp; Electronics</a>
+          <a href="#deals" data-deal-category="other">Travel &amp; Lifestyle</a>
+          <a href="#deals" data-deal-category="all">Deals</a>
         </div>
       </section>
 
       <section class="newsletter-section reveal" id="newsletter" aria-labelledby="newsletter-title">
         <div class="container newsletter-shell">
+          <button class="newsletter-modal-close" type="button" aria-label="Close email signup">&times;</button>
           <div class="newsletter-copy">
             <span class="newsletter-kicker">Free deal alerts</span>
             <h2 id="newsletter-title">Get deals by email</h2>
@@ -635,40 +635,54 @@
     <footer class="site-footer">
       <div class="container footer-grid">
         <div>
-          <p class="footer-brand">AloCoupon</p>
-          <p data-i18n="footer.copy">Coupon marketplace for affiliate campaigns, store reviews, and verified promotional offers.</p>
-          <p class="footer-disclosure">AloCoupon may earn a commission from qualifying partner purchases at no extra cost to you.</p>
-        </div>
-        <div>
           <h3 data-i18n="footer.events">Event Sales</h3>
           <a href="#deals" data-i18n="footer.blackFriday">Black Friday</a>
-          <a href="#deals" data-i18n="footer.christmas">Christmas</a>
           <a href="#deals" data-i18n="footer.valentine">Valentine</a>
+          <a href="#deals" data-i18n="footer.christmas">Christmas</a>
+          <a href="#deals">Halloween</a>
         </div>
         <div>
           <h3 data-i18n="footer.resources">Resources</h3>
-          <a href="#deals" data-i18n="footer.productFeed">Product Feed</a>
-          <a href="#deals" data-i18n="footer.bestRated">Best Rated Product</a>
+          <a href="#deals">Top Deals</a>
+          <a href="#feature-post">Best Picks</a>
+          <a href="#stores">Featured Stores</a>
+          <a href="#feature-post">Blog</a>
         </div>
         <div>
           <h3 data-i18n="footer.company">Company</h3>
           <a href="#stores" data-i18n="footer.about">About Us</a>
           <a href="#newsletter" data-i18n="footer.contact">Contact Us</a>
           <a href="#faq" data-i18n="footer.help">Help Center</a>
+          <a href="#feature-post">Press</a>
         </div>
         <div>
-          <h3 data-i18n="footer.social">Social</h3>
-          <a href="https://www.tiktok.com/search?q=COPPER%20NETWORK" target="_blank" rel="noopener">TikTok</a>
-          <a href="https://www.facebook.com/search/top?q=COPPER%20NETWORK" target="_blank" rel="noopener">Facebook</a>
-          <a href="https://www.instagram.com/explore/search/keyword/?q=COPPER%20NETWORK" target="_blank" rel="noopener">Instagram</a>
-          <a href="https://www.youtube.com/@Kh%C3%A1nhHuy%E1%BB%81nL%C3%AATh%E1%BB%8B-q2h" target="_blank" rel="noopener">YouTube</a>
+          <h3>Notices</h3>
+          <a href="#faq">Terms Of Use</a>
+          <a href="#faq">Privacy Policy</a>
+          <a href="#faq">Disclosure Policy</a>
+          <a href="#faq">Cookie Policy</a>
+        </div>
+        <div class="footer-social-column">
+          <h3>Follow Us On</h3>
+          <div class="footer-social-links" aria-label="Social media">
+            <a href="https://www.facebook.com/" target="_blank" rel="noopener" aria-label="Facebook">f</a>
+            <a href="https://www.instagram.com/" target="_blank" rel="noopener" aria-label="Instagram">◎</a>
+            <a href="https://www.youtube.com/" target="_blank" rel="noopener" aria-label="YouTube">▶</a>
+            <a href="https://www.tiktok.com/" target="_blank" rel="noopener" aria-label="TikTok">♪</a>
+            <a href="https://x.com/" target="_blank" rel="noopener" aria-label="X">𝕏</a>
+            <a href="https://www.pinterest.com/" target="_blank" rel="noopener" aria-label="Pinterest">p</a>
+            <a href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="LinkedIn">in</a>
+          </div>
+          <p class="footer-language">🌐 <strong>Change language:</strong> English &nbsp;·&nbsp; Deutsch &nbsp;·&nbsp; Français &nbsp;·&nbsp; Polski</p>
         </div>
       </div>
     </footer>
 
+    <button class="floating-deal-alert" type="button" aria-controls="newsletter" aria-expanded="false">&#9993;&nbsp; Get deals by email</button>
+
     <div class="toast" role="status" aria-live="polite"></div>
     <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
     <noscript><p class="noscript-note">Enable JavaScript to load the latest verified coupon and deal data.</p></noscript>
-    <script src="script.js?v=20260718-4" defer></script>
+    <script src="script.js?v=20260718-5" defer></script>
   </body>
 </html>

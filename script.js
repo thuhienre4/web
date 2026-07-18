@@ -3988,33 +3988,44 @@ function renderDealCategoryFilters(items) {
 
 function renderFeaturePost(items) {
   const section = document.querySelector("#feature-post");
-  const card = section?.querySelector(".feature-post-card");
-  if (!section || !card || !Array.isArray(items) || !items.length) return;
+  const grid = section?.querySelector("#feature-post-grid");
+  if (!section || !grid || !Array.isArray(items) || !items.length) return;
 
-  const featured = items.find((item) => item.productImage || item.landingImage || item.logo) || items[0];
-  const brand = getOfferBrandName(featured);
-  const title = getDisplayOfferTitle(featured);
-  const summary = getOfferSummary(featured);
-  const imageSource = featured.productImage || featured.landingImage || featured.logo || "assets/affiliate-hero.png";
-  const image = card.querySelector(".feature-post-media img");
-  const heading = card.querySelector(".feature-post-copy h3");
-  const copy = card.querySelector(".feature-post-copy p");
-  const link = card.querySelector(".read-link");
+  const seenStores = new Set();
+  const featuredItems = items.filter((item) => {
+    const storeKey = normalizeStoreKey(item.brand || getOfferBrandName(item));
+    if (!storeKey || seenStores.has(storeKey) || !(item.productImage || item.landingImage || item.logo)) return false;
+    seenStores.add(storeKey);
+    return true;
+  }).slice(0, 12);
 
-  card.classList.toggle("uses-logo", Boolean(featured.logo && imageSource === featured.logo));
-  card.dataset.offerId = String(featured.id || "");
-  if (image) {
-    image.src = imageSource;
-    image.alt = `${brand} featured deal`;
-    image.loading = "lazy";
-    image.decoding = "async";
-  }
-  if (heading) heading.textContent = title;
-  if (copy) copy.textContent = summary;
-  if (link) {
-    link.href = getOfferDealUrl(featured);
-    link.textContent = "View Deal";
-  }
+  grid.innerHTML = featuredItems.map((item) => {
+    const brand = getOfferBrandName(item);
+    const title = getDisplayOfferTitle(item);
+    const summary = getOfferSummary(item);
+    const imageSource = item.productImage || item.landingImage || item.logo || "assets/affiliate-hero.png";
+    const fallbackSource = item.landingImage || item.logo || "assets/affiliate-hero.png";
+    const detailLink = getOfferDealUrl(item);
+    const usesLogo = Boolean(item.logo && imageSource === item.logo);
+    return `
+      <article class="feature-post-card${usesLogo ? " uses-logo" : ""}" data-offer-id="${escapeHtml(item.id || "")}">
+        <a class="feature-post-media" href="${detailLink}" aria-label="Read ${escapeHtml(title)}">
+          <img src="${escapeHtml(imageSource)}" data-fallback="${escapeHtml(fallbackSource)}" alt="${escapeHtml(brand)} featured product" loading="lazy" decoding="async" />
+        </a>
+        <div class="feature-post-copy">
+          <h3><a href="${detailLink}">${escapeHtml(title)}</a></h3>
+          <p>${escapeHtml(summary)}</p>
+          <a class="read-link" href="${detailLink}">Continue Reading</a>
+        </div>
+      </article>`;
+  }).join("");
+
+  grid.querySelectorAll(".feature-post-media img").forEach((image) => {
+    image.addEventListener("error", () => {
+      const fallback = image.dataset.fallback;
+      if (fallback && image.src !== new URL(fallback, window.location.href).href) image.src = fallback;
+    });
+  });
 }
 
 async function renderUploadedDealsInMainGrid() {
@@ -4492,6 +4503,27 @@ updatePageScrollUi();
 
 const newsletterForm = document.querySelector("#newsletter-form");
 const newsletterStatus = document.querySelector("#newsletter-status");
+const newsletterSection = document.querySelector("#newsletter");
+const newsletterOpenButton = document.querySelector(".floating-deal-alert");
+const newsletterCloseButton = document.querySelector(".newsletter-modal-close");
+
+function setNewsletterModal(open) {
+  if (!newsletterSection || !newsletterOpenButton) return;
+  newsletterSection.classList.toggle("is-open", open);
+  newsletterSection.setAttribute("aria-hidden", String(!open));
+  newsletterOpenButton.setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("newsletter-modal-open", open);
+  if (open) window.setTimeout(() => newsletterForm?.querySelector('input[type="email"]')?.focus(), 50);
+}
+
+newsletterOpenButton?.addEventListener("click", () => setNewsletterModal(true));
+newsletterCloseButton?.addEventListener("click", () => setNewsletterModal(false));
+newsletterSection?.addEventListener("click", (event) => {
+  if (event.target === newsletterSection) setNewsletterModal(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && newsletterSection?.classList.contains("is-open")) setNewsletterModal(false);
+});
 
 newsletterForm?.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -5985,3 +5985,37 @@ body.teela-inspired-theme:not(.admin-mode) .store-card h3 {
   .cms-entity-secondary { grid-template-columns: 1fr 1fr; }
   .admin-mode .category-toolbar { position: static; }
 }
+
+.admin-mode .cms-data-architecture {
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  background: linear-gradient(145deg, #ffffff 0%, #f8fbfd 100%);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(28, 46, 62, .09);
+}
+.admin-mode .cms-data-architecture::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  content: "";
+  background: linear-gradient(90deg, #0f9f73, #2f80ed, #8b5cf6);
+}
+.admin-mode .cms-data-architecture-head { align-items: center; }
+.admin-mode .cms-data-architecture-head h2 { color: #152b3b; font-size: 1.3rem; letter-spacing: -.02em; }
+.admin-mode .cms-kicker { display: inline-flex; padding: 4px 8px; background: #e8f8f2; border-radius: 999px; }
+.admin-mode .cms-entity-card { position: relative; min-height: 112px; padding: 16px 18px; background: #fff; border: 1px solid #e0e7ec; border-radius: 10px; box-shadow: 0 5px 14px rgba(33, 50, 65, .06); }
+.admin-mode .cms-entity-card span { display: flex; align-items: center; gap: 7px; }
+.admin-mode .cms-entity-card span i { display: grid; width: 26px; height: 26px; place-items: center; color: currentColor; background: currentColor; border-radius: 7px; font-size: 0; font-style: normal; opacity: .12; }
+.admin-mode .cms-entity-card strong { color: #172b3a; font-size: 1.8rem; line-height: 1; }
+.admin-mode .cms-entity-card small { margin-top: 3px; font-size: .72rem; }
+.admin-mode .entity-category span { color: #7c3aed; }
+.admin-mode .entity-store span { color: #2563eb; }
+.admin-mode .entity-offer span { color: #059669; }
+.admin-mode .entity-deal span { color: #ea580c; }
+.admin-mode .cms-flow-arrow { display: grid; width: 30px; height: 30px; align-self: center; place-items: center; color: #7d8b96; background: #edf2f5; border-radius: 50%; font-size: .9rem; }
+.admin-mode .cms-entity-secondary { padding-top: 12px; border-top: 1px dashed #d9e1e6; }
+.admin-mode .cms-entity-secondary button { min-height: 58px; padding: 12px 14px; background: rgba(255,255,255,.82); border-radius: 8px; }

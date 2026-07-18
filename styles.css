@@ -3296,6 +3296,47 @@ h3 {
   }
 }
 
+/* Structured CMS workspace: mirrors Category > Store > Offer / Deal data relationships. */
+.admin-mode .cms-sidebar { background: #202733; border-right: 1px solid rgba(255,255,255,.06); }
+.admin-mode .cms-brand { min-height: 72px; background: #171d27; }
+.admin-mode .cms-nav-item, .admin-mode .cms-subnav button { border-left: 3px solid transparent; }
+.admin-mode .cms-nav-item.is-active, .admin-mode .cms-subnav button.is-active { color: #fff; background: rgba(25,171,122,.18); border-left-color: #22c58b; }
+.admin-mode .cms-nav em, .admin-mode .cms-subnav em { min-width: 24px; margin-left: auto; padding: 2px 7px; color: #cbd5df; background: rgba(255,255,255,.1); border-radius: 999px; font-size: .66rem; font-style: normal; text-align: center; }
+.admin-mode .cms-topbar { gap: 18px; min-height: 72px; padding: 10px 24px; }
+.cms-global-search { display: flex; align-items: center; flex: 1; max-width: 520px; min-width: 240px; padding: 0 12px; background: #f4f6f8; border: 1px solid #dde3e8; border-radius: 6px; }
+.cms-global-search > span { color: #6d7882; font-size: 1.15rem; }
+.cms-global-search input { flex: 1; min-width: 0; padding: 10px; background: transparent; border: 0; outline: 0; }
+.cms-global-search kbd { padding: 3px 6px; color: #87919a; background: #fff; border: 1px solid #d7dde2; border-radius: 4px; font: 600 .65rem/1.2 Inter,Arial,sans-serif; }
+.admin-mode .cms-main { background: #f3f5f7; }
+.admin-mode .cms-page-heading { align-items: center; padding-bottom: 17px; border-bottom: 1px solid #dde3e8; }
+.cms-data-architecture { margin-bottom: 18px; padding: 20px; background: #fff; border: 1px solid #dce3e8; border-radius: 6px; box-shadow: 0 4px 14px rgba(28,45,60,.05); }
+.cms-data-architecture-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+.cms-data-architecture-head h2 { margin: 3px 0 5px; font-size: 1.15rem; }
+.cms-data-architecture-head p { max-width: 760px; margin: 0; color: #71808c; font-size: .82rem; line-height: 1.55; }
+.cms-kicker { color: #15956d; font-size: .66rem; font-weight: 900; letter-spacing: .1em; }
+.cms-entity-flow { display: grid; align-items: stretch; grid-template-columns: minmax(150px,.8fr) 30px minmax(160px,1fr) 30px minmax(300px,1.7fr); gap: 10px; }
+.cms-entity-flow > i { align-self: center; color: #a0adb7; font-style: normal; text-align: center; }
+.cms-entity-flow button, .cms-entity-secondary button { cursor: pointer; text-align: left; }
+.cms-entity-flow button { display: grid; gap: 4px; min-height: 100px; padding: 14px; color: #2f4150; background: #f7fafb; border: 1px solid #dbe4e9; border-radius: 5px; }
+.cms-entity-flow button:hover { border-color: #54b795; box-shadow: 0 4px 12px rgba(25,130,94,.1); }
+.cms-entity-flow button span { color: #168660; font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+.cms-entity-flow button strong { font-size: 1.55rem; }
+.cms-entity-flow button small { color: #7b8993; }
+.cms-entity-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cms-entity-secondary { display: grid; grid-template-columns: repeat(6,minmax(100px,1fr)); gap: 8px; margin-top: 10px; }
+.cms-entity-secondary button { display: grid; gap: 3px; padding: 11px 12px; color: #40515e; background: #fff; border: 1px solid #e0e6ea; border-radius: 4px; }
+.cms-entity-secondary button:hover { background: #f5faf8; border-color: #77bfa7; }
+.cms-entity-secondary b { font-size: .78rem; }
+.cms-entity-secondary span { color: #85919a; font-size: .66rem; }
+.admin-mode .category-toolbar { position: sticky; top: 72px; z-index: 4; padding: 12px; background: rgba(255,255,255,.96); border: 1px solid #dfe5e9; border-radius: 5px; box-shadow: 0 3px 10px rgba(30,47,61,.05); }
+.admin-mode .category-table-wrap { border: 1px solid #dde4e9; border-radius: 5px; box-shadow: 0 3px 12px rgba(28,45,60,.04); }
+.admin-mode .category-table thead th { position: sticky; top: 0; z-index: 2; color: #51616d; background: #f2f5f7; font-size: .68rem; letter-spacing: .035em; text-transform: uppercase; }
+.admin-mode .category-table tbody tr:hover { background: #f5fbf8; }
+.cms-data-chip { display: inline-block; max-width: 180px; padding: 4px 8px; overflow: hidden; color: #31576b; background: #edf5f8; border-radius: 999px; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.cms-status-warning { display: inline-block; padding: 4px 7px; color: #9b5b05; background: #fff5df; border-radius: 4px; font-size: .68rem; font-weight: 800; }
+@media (max-width:1100px) { .cms-global-search { max-width:360px; } .cms-entity-flow { grid-template-columns:1fr; } .cms-entity-flow > i { display:none; } .cms-entity-secondary { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:760px) { .cms-global-search { order:3; flex-basis:100%; max-width:none; } .admin-mode .cms-topbar { flex-wrap:wrap; } .cms-data-architecture-head { flex-direction:column; } .cms-entity-split, .cms-entity-secondary { grid-template-columns:1fr 1fr; } .admin-mode .category-toolbar { position:static; } }
+
 /* Teelacodes-inspired public homepage — AloCoupon branding and live data */
 body:not(.admin-mode) {
   color: #20262d;
@@ -5929,4 +5970,18 @@ body.teela-inspired-theme:not(.admin-mode) .store-card h3 {
   body.teela-inspired-theme:not(.admin-mode) .store-card {
     flex-basis: calc((100% - 28px) / 3);
   }
+}
+
+/* Final admin theme precedence. */
+.admin-mode .cms-sidebar { background: #202733; border-right: 1px solid rgba(255,255,255,.06); }
+.admin-mode .cms-brand { min-height: 72px; background: #171d27; }
+.admin-mode .cms-nav-item.is-active,
+.admin-mode .cms-subnav button.is-active { color: #fff; background: rgba(25,171,122,.18); border-left-color: #22c58b; }
+@media (max-width:760px) {
+  .cms-global-search { order: 3; flex-basis: 100%; max-width: none; }
+  .admin-mode .cms-topbar { flex-wrap: wrap; }
+  .cms-data-architecture-head { flex-direction: column; }
+  .cms-entity-split,
+  .cms-entity-secondary { grid-template-columns: 1fr 1fr; }
+  .admin-mode .category-toolbar { position: static; }
 }

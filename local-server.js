@@ -3800,7 +3800,7 @@ function dealStructuredData(offer) {
   const dealUrl = getAbsoluteUrl(dealPath);
   const title = getDisplayOfferTitle(offer);
   const description = getOfferSummary(offer) || "Review this coupon offer before visiting the partner website.";
-  const validThrough = offer.expiryDate || offer.expiresAt || undefined;
+  const validThrough = getValidOfferExpiry(offer) || undefined;
 
   return {
     "@context": "https://schema.org",
@@ -3876,11 +3876,106 @@ function findStoreGroupBySlug(slug) {
   return groupOffersByBrand(readOffers()).get(normalizedSlug);
 }
 
+function getValidOfferExpiry(offer) {
+  const value = String(offer.expiryDate || offer.expiresAt || offer.expiry || "").trim();
+  if (!value || /limited|ongoing|unknown|n\/a|no expir/i.test(value)) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function getStoreCategoryProfile(group) {
+  const categories = group.items
+    .map((offer) => String(offer.category || "").trim())
+    .filter((category) => category && !/^other$/i.test(category));
+  if (categories.length) {
+    const counts = categories.reduce((result, category) => result.set(category, (result.get(category) || 0) + 1), new Map());
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+  const corpus = group.items.map((offer) => `${offer.sourceTitle || ""} ${offer.title || ""} ${offer.sourceDescription || ""} ${offer.review || ""}`).join(" ").toLowerCase();
+  const inferredCategories = [
+    ["Beauty & Personal Care", /beauty|hair|skin|cosmetic|fragrance|shampoo|salon/],
+    ["Fashion & Accessories", /fashion|apparel|clothing|shirt|dress|shoe|bag|backpack|jewelry/],
+    ["Electronics & Technology", /monitor|drone|camera|electronic|laptop|display|thermo|temperature|sensor/],
+    ["Health & Wellness", /health|fitness|supplement|protein|vitamin|wellness|workout/],
+    ["Home & Garden", /garden|home|furniture|paint|kitchen|wine|fridge|refrigerator/],
+    ["Pets", /pet|reptile|dog|cat|animal/],
+    ["Collectibles & General Merchandise", /funko|collectible|clearance|liquidacion|storewide/],
+    ["Software & Online Services", /software|saas|hosting|subscription|plugin|app/],
+  ];
+  return inferredCategories.find(([, pattern]) => pattern.test(corpus))?.[0] || "Online Retail";
+}
+
+function getStoreOfferDescription(offer, brand) {
+  const source = String(offer.sourceDescription || offer.review || offer.title || "").replace(/\s+/g, " ").trim();
+  const discount = String(offer.discount || "a current promotion").trim();
+  const code = isUsableCouponCode(offer.code) ? String(offer.code).trim() : "";
+  const category = String(offer.category || "").trim();
+  const expiry = getValidOfferExpiry(offer);
+  const details = [
+    source,
+    code ? `Use code ${code} at checkout for the listed ${discount} promotion.` : `No coupon code is listed; open the deal to check how the ${discount} promotion is applied.`,
+    category && !/^other$/i.test(category) ? `This offer is filed under ${category}.` : "",
+    expiry ? `The supplied expiration date is ${new Date(expiry).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.` : `The source record does not provide a confirmed expiration date, so check the terms on ${brand}'s website before ordering.`,
+  ].filter(Boolean);
+  return [...new Set(details)].join(" ");
+}
+
+function getStoreFaq(group) {
+  const brand = group.brand;
+  const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
+  const dealCount = group.items.length - codeCount;
+  const datedOffers = group.items.filter(getValidOfferExpiry).length;
+  return [
+    {
+      question: `How do I use a ${brand} coupon code?`,
+      answer: codeCount
+        ? `Choose one of the ${codeCount} coupon codes currently listed for ${brand}, select Get Code, and copy it. Continue to the original website, add eligible items to the cart, and paste the code into the promo-code field at checkout. Confirm that the discount appears before paying.`
+        : `${brand} currently has no coupon code in the AloCoupon source records. Use one of the ${dealCount} code-free deals instead, and verify the advertised price or automatic discount on the original website before paying.`,
+    },
+    {
+      question: `Does ${brand} have verified coupon codes and deals?`,
+      answer: `AloCoupon currently lists ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} online ${dealCount === 1 ? "deal" : "deals"} for ${brand}. Each entry links to its original destination and keeps the source title or the original API description so shoppers can verify the scope and terms.`,
+    },
+    {
+      question: `Why is my ${brand} coupon code not working?`,
+      answer: `The code may be limited to selected products, require a minimum order, exclude sale items, or have expired. Check spelling and capitalization, confirm the cart meets the offer terms, and try another listed offer. ${datedOffers ? `${datedOffers} offers include a supplied expiration date.` : "The current source records do not include confirmed expiration dates, so the merchant checkout page is the final source of validity."}`,
+    },
+    {
+      question: `Do ${brand} deals require a promo code?`,
+      answer: dealCount
+        ? `${dealCount} current ${brand} ${dealCount === 1 ? "deal is" : "deals are"} listed without a coupon code. For these offers, select Get Deal and verify the sale price or automatic discount on the original website before completing the purchase.`
+        : `All current ${brand} offers in the AloCoupon source records use coupon codes. Select Get Code, copy the code, and confirm that checkout accepts it before completing the purchase.`,
+    },
+  ];
+}
+
+function getStoreRating(group) {
+  const source = group.items.find((offer) => Number(offer.ratingValue) > 0 && Number(offer.ratingCount) > 0);
+  if (!source) return null;
+  return {
+    value: Math.min(5, Math.max(1, Number(source.ratingValue))),
+    count: Math.max(1, Math.floor(Number(source.ratingCount))),
+  };
+}
+
+function getRelatedStoreGroups(group, limit = 6) {
+  const category = getStoreCategoryProfile(group);
+  return [...groupOffersByBrand(readOffers()).values()]
+    .filter((candidate) => getOfferStoreSlug(candidate.brand) !== getOfferStoreSlug(group.brand))
+    .map((candidate) => ({ candidate, sameCategory: getStoreCategoryProfile(candidate) === category }))
+    .sort((a, b) => Number(b.sameCategory) - Number(a.sameCategory) || b.candidate.items.length - a.candidate.items.length)
+    .slice(0, limit)
+    .map(({ candidate }) => candidate);
+}
+
 function storeStructuredData(group) {
   const storePath = getOfferStorePath(group.brand);
   const storeUrl = getAbsoluteUrl(storePath);
   const title = `${group.brand} Coupons and Promo Codes`;
-  const description = `Browse all verified ${group.brand} coupon codes, deals, discounts, and affiliate offers on AloCoupon.`;
+  const category = getStoreCategoryProfile(group);
+  const description = `Compare verified ${group.brand} coupon codes and ${category.toLowerCase()} deals, with source-linked offer details, eligibility notes, and expiration information when supplied.`;
+  const faqs = getStoreFaq(group);
+  const rating = getStoreRating(group);
 
   return {
     "@context": "https://schema.org",
@@ -3904,7 +3999,13 @@ function storeStructuredData(group) {
           {
             "@type": "ListItem",
             "position": 2,
-            "name": "Coupon Store",
+            "name": "Stores",
+            "item": getAbsoluteUrl("/#stores"),
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": group.brand,
             "item": storeUrl,
           },
         ],
@@ -3915,6 +4016,17 @@ function storeStructuredData(group) {
         "name": title,
         "description": description,
         "url": storeUrl,
+        "about": category,
+        "keywords": `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${category} discounts`,
+        ...(rating ? {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": rating.value,
+            "ratingCount": rating.count,
+            "bestRating": 5,
+            "worstRating": 1,
+          },
+        } : {}),
         "isPartOf": {
           "@id": `${siteUrl}/#website`,
         },
@@ -3922,11 +4034,30 @@ function storeStructuredData(group) {
       {
         "@type": "ItemList",
         "@id": `${storeUrl}#offers`,
-        "itemListElement": group.items.map((offer, index) => ({
-          "@type": "ListItem",
-          "position": index + 1,
-          "url": getAbsoluteUrl(getOfferDealPath(offer)),
-          "name": String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(),
+        "itemListElement": group.items.map((offer, index) => {
+          const validThrough = getValidOfferExpiry(offer);
+          return {
+            "@type": "ListItem",
+            "position": index + 1,
+            "item": {
+              "@type": "Offer",
+              "url": getAbsoluteUrl(getOfferDealPath(offer)),
+              "name": String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(),
+              "description": getStoreOfferDescription(offer, group.brand),
+              "category": String(offer.category && !/^other$/i.test(offer.category) ? offer.category : category),
+              ...(validThrough ? { "validThrough": validThrough } : {}),
+              "seller": { "@type": "Organization", "name": group.brand },
+            },
+          };
+        }),
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${storeUrl}#faq`,
+        "mainEntity": faqs.map((faq) => ({
+          "@type": "Question",
+          "name": faq.question,
+          "acceptedAnswer": { "@type": "Answer", "text": faq.answer },
         })),
       },
     ],
@@ -3971,6 +4102,7 @@ function sanitizeOffer(input) {
     link: String(input.link || "").trim(),
     category: String(input.category || "").trim(),
     expiry: String(input.expiry || "").trim(),
+    expiryDate: String(input.expiryDate || input.expiresAt || "").trim().slice(0, 80),
     review: String(input.review || "").trim(),
     logo: sanitizeOfferImage(input.logo, "Logo"),
     productImage: sanitizeOfferImage(input.productImage, "Product image", 1_500 * 1024),
@@ -3983,6 +4115,8 @@ function sanitizeOffer(input) {
     sourcePrice: String(input.sourcePrice || "").trim().slice(0, 40),
     sourceCurrency: String(input.sourceCurrency || "").trim().toUpperCase().slice(0, 12),
     sourceUrl: String(input.sourceUrl || input.assetSourceUrl || "").trim().slice(0, 2000),
+    ratingValue: Number(input.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue))) : 0,
+    ratingCount: Number(input.ratingCount) > 0 ? Math.floor(Number(input.ratingCount)) : 0,
     createdAt: new Date().toISOString(),
   };
 
@@ -4087,21 +4221,21 @@ function adminPage(adminEmail = "") {
         <button class="cms-nav-item" type="button" data-admin-target="categories"><span>▦</span> Quản lý danh mục</button>
         <button class="cms-nav-item cms-parent-item" id="coupon-menu-toggle" type="button" aria-expanded="true"><span>◆</span> Quản lý coupon <b>⌄</b></button>
         <div class="cms-subnav" id="coupon-subnav">
-          <button type="button" data-admin-target="store-list"><span>›</span> Store</button>
-          <button type="button" data-admin-target="offer-list"><span>›</span> Offer</button>
-          <button type="button" data-admin-target="deal-list"><span>›</span> Deal</button>
+          <button type="button" data-admin-target="store-list"><span>›</span> Store <em id="nav-store-count">0</em></button>
+          <button type="button" data-admin-target="offer-list"><span>›</span> Offer <em id="nav-offer-count">0</em></button>
+          <button type="button" data-admin-target="deal-list"><span>›</span> Deal <em id="nav-deal-count">0</em></button>
           <button type="button" data-admin-target="bulk-offer-import"><span>⇧</span> Upload Deal & Coupon</button>
         </div>
-        <button class="cms-nav-item" type="button" data-admin-target="news"><span>▤</span> Quản lý tin tức</button>
-        <button class="cms-nav-item" type="button" data-admin-target="content"><span>□</span> Trang nội dung</button>
+        <button class="cms-nav-item" type="button" data-admin-target="news"><span>▤</span> Bài viết / Post <em id="nav-post-count">0</em></button>
+        <button class="cms-nav-item" type="button" data-admin-target="content"><span>□</span> Trang / Page</button>
         <button class="cms-nav-item" type="button" data-admin-target="widgets"><span>▧</span> Widget</button>
         <button class="cms-nav-item" type="button" data-admin-target="menu"><span>☰</span> Menu</button>
       </nav>
       <p class="cms-menu-label cms-system-label">HỆ THỐNG</p>
       <nav class="cms-nav cms-system-nav" aria-label="System navigation">
-        <button class="cms-nav-item" type="button" data-admin-target="projects"><span>▣</span> Quản lý file</button>
-        <button class="cms-nav-item" type="button" data-admin-target="users"><span>♙</span> Quản lý user</button>
-        <button class="cms-nav-item" type="button" data-admin-target="subscribers"><span>✉</span> Email subscribers</button>
+        <button class="cms-nav-item" type="button" data-admin-target="projects"><span>▣</span> Media / File</button>
+        <button class="cms-nav-item" type="button" data-admin-target="users"><span>♙</span> User quản trị</button>
+        <button class="cms-nav-item" type="button" data-admin-target="subscribers"><span>✉</span> Member / Subscriber <em id="nav-member-count">0</em></button>
         <button class="cms-nav-item cms-parent-item" id="settings-menu-toggle" type="button" aria-expanded="true"><span>⚙</span> Quản lý cấu hình <b>⌄</b></button>
         <div class="cms-subnav" id="settings-subnav">
           <button type="button" data-admin-target="settings-general"><span>›</span> Cấu hình chung</button>
@@ -4119,12 +4253,24 @@ function adminPage(adminEmail = "") {
       <header class="cms-topbar">
         <button class="cms-menu-toggle" id="cms-menu-toggle" type="button" aria-label="Toggle menu">☰</button>
         <nav><button type="button" data-admin-target="dashboard">Home</button><button type="button" data-admin-target="bulk-offer-import">Nhập dữ liệu</button></nav>
+        <form class="cms-global-search" id="cms-global-search"><span>⌕</span><input id="cms-global-search-input" type="search" placeholder="Tìm Store, Offer, Deal, mã coupon..." /><kbd>Enter</kbd></form>
         <div class="cms-top-actions"><a href="/" target="_blank">◉ Xem website</a><span>🔔</span><button id="top-logout-btn" type="button">Đăng xuất</button></div>
       </header>
       <main class="cms-main">
         <section class="cms-panel is-active" data-admin-panel="dashboard">
           <div class="cms-page-heading"><div><h1>Dashboard AloCoupon</h1><p>Theo dõi dữ liệu, chất lượng hình ảnh và trạng thái newsletter tại một nơi.</p></div><div class="cms-breadcrumb"><strong>Tổng quan</strong></div></div>
           <div class="admin-dashboard-cards" id="admin-dashboard-cards"><div class="admin-dashboard-loading">Đang tải số liệu...</div></div>
+          <section class="cms-data-architecture">
+            <div class="cms-data-architecture-head"><div><span class="cms-kicker">CẤU TRÚC DỮ LIỆU CMS</span><h2>Quản trị theo từng thực thể</h2><p>Cấu trúc được ánh xạ theo hệ thống mẫu: Category, Store, Offer, Deal, Post, Page, Widget, Menu, Member và Settings.</p></div><button class="cms-btn cms-btn-dark" data-admin-target="bulk-offer-import" type="button">Nhập dữ liệu</button></div>
+            <div class="cms-entity-flow">
+              <button type="button" data-admin-target="categories"><span>Category</span><strong id="entity-category-count">0</strong><small>Phân loại nội dung</small></button>
+              <i>→</i>
+              <button type="button" data-admin-target="store-list"><span>Store</span><strong id="entity-store-count">0</strong><small>Thương hiệu / cửa hàng</small></button>
+              <i>→</i>
+              <div class="cms-entity-split"><button type="button" data-admin-target="offer-list"><span>Offer</span><strong id="entity-offer-count">0</strong><small>Coupon có mã</small></button><button type="button" data-admin-target="deal-list"><span>Deal</span><strong id="entity-deal-count">0</strong><small>Khuyến mãi không mã</small></button></div>
+            </div>
+            <div class="cms-entity-secondary"><button type="button" data-admin-target="news"><b>Post</b><span>Nội dung từ API</span></button><button type="button" data-admin-target="content"><b>Page</b><span>Trang tĩnh</span></button><button type="button" data-admin-target="widgets"><b>Widget</b><span>Khối hiển thị</span></button><button type="button" data-admin-target="menu"><b>Menu</b><span>Điều hướng</span></button><button type="button" data-admin-target="subscribers"><b>Member</b><span>Subscriber</span></button><button type="button" data-admin-target="settings-general"><b>Settings</b><span>Cấu hình site</span></button></div>
+          </section>
           <div class="admin-dashboard-grid">
             <section class="admin-dashboard-block"><div class="admin-dashboard-block-head"><div><h2>Chất lượng dữ liệu</h2><p>Tìm và sửa nhanh các offer thiếu ảnh.</p></div><button class="cms-btn cms-btn-info" id="refresh-offer-assets-btn" type="button">Tối ưu ảnh (tối đa 40)</button></div><div id="admin-quality-summary"></div></section>
             <section class="admin-dashboard-block"><div class="admin-dashboard-block-head"><div><h2>Thao tác nhanh</h2><p>Các công việc quản trị thường dùng.</p></div></div><div class="admin-quick-actions"><button data-admin-target="bulk-offer-import" type="button">⇧ Nhập Deal/Coupon</button><button data-admin-target="deal-create" type="button">＋ Tạo Deal</button><button data-admin-target="offer-list" type="button">◆ Quản lý Coupon</button><button data-admin-target="subscribers" type="button">✉ Subscribers</button></div></section>
@@ -4162,7 +4308,7 @@ function adminPage(adminEmail = "") {
         <section class="cms-panel coupon-manager-panel" data-admin-panel="store-list" hidden>
           <div class="cms-page-heading"><div><h1>Quản lý store</h1><p>Danh sách cửa hàng được tổng hợp từ dữ liệu coupon đã upload.</p></div><div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><strong>Store</strong></div></div>
           <div class="category-toolbar"><div class="category-search"><input id="store-list-search" type="search" placeholder="Tìm kiếm" /><select id="store-list-status"><option value="all">Tất cả trạng thái</option><option value="visible">Hiển thị</option></select><button class="cms-btn cms-btn-primary coupon-search-btn" data-list="store" type="button">Tìm kiếm</button></div><div class="category-actions"><button class="cms-btn cms-btn-primary" id="refresh-store-list-btn" type="button">↻ Làm mới</button><button class="cms-btn cms-btn-info create-coupon-btn" data-create-type="code" type="button">⊕ Thêm mới</button><button class="cms-btn cms-btn-dark" data-admin-target="dashboard" type="button">↶ Dashboard</button></div></div>
-          <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="store" /></th><th>Name</th><th>Logo</th><th>Hiển thị</th><th>Số offer</th><th>Ngày đăng</th><th class="row-actions"></th></tr></thead><tbody id="store-list-body"></tbody></table></div>
+          <div class="category-table-wrap"><table class="category-table coupon-data-table"><thead><tr><th class="row-number"></th><th class="check-cell"><input type="checkbox" data-select-all="store" /></th><th>Store</th><th>Logo</th><th>Danh mục</th><th>Coupon</th><th>Deal</th><th>Dữ liệu nguồn</th><th>Cập nhật</th><th class="row-actions"></th></tr></thead><tbody id="store-list-body"></tbody></table></div>
         </section>
 
         <section class="cms-panel coupon-manager-panel" data-admin-panel="offer-list" hidden>
@@ -4508,6 +4654,17 @@ function adminPage(adminEmail = "") {
       const target = window.location.hash.replace(/^#/, "");
       if (target && document.querySelector('[data-admin-panel="' + target + '"]')) openAdminPanel(target);
     });
+    document.querySelector("#cms-global-search").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = document.querySelector("#cms-global-search-input").value.trim();
+      if (!query) return;
+      document.querySelector("#offer-list-search").value = query;
+      document.querySelector("#offer-list-store").value = "all";
+      document.querySelector("#offer-list-status").value = "all";
+      renderOfferManager();
+      openAdminPanel("offer-list");
+      showToast('Kết quả cho "' + query + '"');
+    });
     document.querySelector("#cms-menu-toggle").addEventListener("click", () => cmsSidebar.classList.toggle("is-open"));
     document.querySelector("#coupon-menu-toggle").addEventListener("click", (event) => {
       const expanded = event.currentTarget.getAttribute("aria-expanded") === "true";
@@ -4581,6 +4738,18 @@ function adminPage(adminEmail = "") {
       if (!res.ok) return;
       const data = await res.json();
       const totals = data.totals || {};
+      const entityCounts = {
+        "nav-store-count": totals.stores || 0,
+        "nav-offer-count": totals.coupons || 0,
+        "nav-deal-count": totals.deals || 0,
+        "nav-post-count": (totals.coupons || 0) + (totals.deals || 0),
+        "nav-member-count": totals.activeSubscribers || 0,
+        "entity-category-count": totals.categories || 0,
+        "entity-store-count": totals.stores || 0,
+        "entity-offer-count": totals.coupons || 0,
+        "entity-deal-count": totals.deals || 0,
+      };
+      Object.entries(entityCounts).forEach(([id, value]) => { const element = document.getElementById(id); if (element) element.textContent = Number(value); });
       const cards = [
         ["Coupon code", totals.coupons || 0, "Mã giảm giá", "offer-list"],
         ["Deal", totals.deals || 0, "Ưu đãi không mã", "deal-list"],
@@ -4628,14 +4797,18 @@ function adminPage(adminEmail = "") {
       const groups = new Map();
       currentOffers.forEach((offer) => {
         const key = String(offer.brand || "Unknown store").trim() || "Unknown store";
-        const current = groups.get(key) || { brand: key, count: 0, logo: offer.logo || "", latestAt: 0 };
+        const current = groups.get(key) || { brand: key, count: 0, coupons: 0, deals: 0, categories: new Set(), missingSource: 0, logo: offer.logo || "", latestAt: 0 };
         current.count += 1;
+        if (offer.type === "deal") current.deals += 1;
+        else current.coupons += 1;
+        current.categories.add(String(offer.category || "Other"));
+        if (!offer.sourceTitle && !offer.sourceDescription) current.missingSource += 1;
         current.logo ||= offer.logo || "";
         current.latestAt = Math.max(current.latestAt, new Date(offer.createdAt || 0).getTime());
         groups.set(key, current);
       });
       const stores = Array.from(groups.values()).filter((store) => !query || store.brand.toLowerCase().includes(query)).sort((a, b) => b.latestAt - a.latestAt);
-      storeListBody.innerHTML = stores.length ? stores.map((store, index) => \`<tr><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="store" type="checkbox" /></td><td><button class="category-name-link store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">\${escapeHtml(store.brand)}</button></td><td>\${store.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(store.logo) + '" alt="" />' : '<span class="coupon-image-empty">No image</span>'}</td><td><select><option>Có</option><option>Không</option></select></td><td><strong>\${store.count}</strong></td><td>\${formatAdminDate(store.latestAt)}</td><td class="row-actions"><button class="table-edit-btn store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">✎</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="8">No data !</td></tr>';
+      storeListBody.innerHTML = stores.length ? stores.map((store, index) => \`<tr><td class="row-number">\${index + 1}</td><td class="check-cell"><input class="coupon-row-select" data-list="store" type="checkbox" /></td><td><button class="category-name-link store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button">\${escapeHtml(store.brand)}</button><small class="cms-table-sub">\${store.count} bản ghi liên kết</small></td><td>\${store.logo ? '<img class="coupon-table-logo" src="' + escapeHtml(store.logo) + '" alt="" />' : '<span class="coupon-image-empty">Thiếu logo</span>'}</td><td><span class="cms-data-chip">\${escapeHtml(Array.from(store.categories).slice(0, 2).join(", "))}</span></td><td><strong>\${store.coupons}</strong></td><td><strong>\${store.deals}</strong></td><td><span class="\${store.missingSource ? "cms-status-warning" : "cms-status-active"}">\${store.missingSource ? store.missingSource + " thiếu metadata" : "Đầy đủ"}</span></td><td>\${formatAdminDate(store.latestAt)}</td><td class="row-actions"><button class="table-edit-btn store-open-btn" data-brand="\${escapeHtml(store.brand)}" type="button" title="Xem offer của store">→</button></td></tr>\`).join("") : '<tr><td class="coupon-no-data" colspan="10">Chưa có dữ liệu Store.</td></tr>';
     }
 
     function renderOfferManager() {
@@ -5712,7 +5885,8 @@ function dealPage(offer) {
   const title = escapeHtml(getDisplayOfferTitle(offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");
-  const expiry = escapeHtml(offer.expiry || "Limited time");
+  const validExpiry = getValidOfferExpiry(offer);
+  const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
   const review = escapeHtml(getOfferSummary(offer) || "Review this offer before visiting the partner website.");
   const code = escapeHtml(offer.code || "No code needed");
   const hasCode = Boolean(String(offer.code || "").trim());
@@ -5790,7 +5964,8 @@ function storePage(group) {
   const brand = escapeHtml(group.brand);
   const storePath = getOfferStorePath(group.brand);
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
-  const description = escapeHtml(`All verified ${group.brand} coupon codes, promo codes, product deals, and affiliate offers on AloCoupon.`);
+  const categoryProfile = getStoreCategoryProfile(group);
+  const description = escapeHtml(`Compare ${group.items.length} verified ${group.brand} coupon codes and ${categoryProfile.toLowerCase()} deals. Review code requirements, product scope, source details, and expiration dates when supplied.`);
   const structuredData = jsonLdScript(storeStructuredData(group));
   const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = group.items.length - codeCount;
@@ -5804,18 +5979,24 @@ function storePage(group) {
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
   const sourceDescriptions = [...new Set(group.items.map((offer) => String(offer.sourceDescription || offer.review || "").trim()).filter(Boolean))];
-  const aboutCopy = escapeHtml(sourceDescriptions.slice(0, 3).join(" ") || `${group.brand} offers products and promotions through its official website. Review the original product information before completing a purchase.`);
-  const storeCategory = escapeHtml(primaryOffer.category || "Online Store");
+  const aboutCopy = escapeHtml(sourceDescriptions.slice(0, 4).join(" ") || `The current ${group.brand} records cover ${categoryProfile.toLowerCase()} promotions available through the store's original website.`);
+  const storeCategory = escapeHtml(categoryProfile);
+  const faqs = getStoreFaq(group);
+  const rating = getStoreRating(group);
+  const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
+  const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
+  const productCoverage = group.items.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim())}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
   const offerRows = group.items.map((offer) => {
     const sourceTitle = String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim();
-    const sourceSummary = String(offer.sourceDescription || offer.review || offer.title || sourceTitle).trim();
+    const sourceSummary = getStoreOfferDescription(offer, group.brand);
     const title = escapeHtml(sourceTitle);
     const summary = escapeHtml(sourceSummary);
     const discount = escapeHtml(formatStoreDiscount(offer.discount));
     const hasCode = isUsableCouponCode(offer.code);
     const code = escapeHtml(hasCode ? offer.code : "No code needed");
     const typeLabel = hasCode ? "Coupon code" : "Online deal";
-    const expiry = escapeHtml(offer.expiry || "Limited time");
+    const validExpiry = getValidOfferExpiry(offer);
+    const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
     const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
     return `
@@ -5842,6 +6023,10 @@ function storePage(group) {
   <meta name="robots" content="index, follow" />
   <title>${brand} Coupons and Promo Codes | AloCoupon</title>
   <meta name="description" content="${description}" />
+  <meta name="keywords" content="${brand} coupons, ${brand} promo codes, ${brand} deals, ${storeCategory} discounts" />
+  <meta property="og:title" content="${brand} Coupons and Promo Codes" />
+  <meta property="og:description" content="${description}" />
+  <meta property="og:url" content="${storeUrl}" />
   <link rel="canonical" href="${storeUrl}" />
   <link rel="alternate" type="application/rss+xml" title="AloCoupon Latest Deals" href="${escapeHtml(getAbsoluteUrl("/rss.xml"))}" />
   ${structuredData}
@@ -5946,8 +6131,8 @@ function storePage(group) {
     .store-reference-content .brand-offer-discount { background: #effaec; border: 1px dashed #86ca79; border-radius: 2px; color: #16810b; }
     .store-reference-content .brand-offer-action { background: #079d13; border-radius: 3px; font-size: .9rem; }
     .brand-source-note, .brand-code-preview { color: #8a969e; display: block; font-size: .68rem; }
-    .store-about-card, .store-how-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; margin-top: 28px; padding: 26px; }
-    .store-about-card h2, .store-how-card h2 { font-size: 1.5rem; margin: 0 0 20px; }
+    .store-about-card, .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; margin-top: 28px; padding: 26px; }
+    .store-about-card h2, .store-how-card h2, .store-faq-card h2, .store-rating-card h2, .store-related-card h2 { font-size: 1.5rem; margin: 0 0 20px; }
     .store-about-card h3 { font-size: 1rem; margin: 20px 0 6px; }
     .store-about-card p, .store-steps p { color: #586a76; font-size: .86rem; line-height: 1.65; margin: 0; }
     .store-steps { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
@@ -5955,6 +6140,23 @@ function storePage(group) {
     .store-steps article:last-child { border: 0; }
     .store-steps b { align-items: center; background: #079d13; border-radius: 50%; color: #fff; display: flex; height: 32px; justify-content: center; width: 32px; }
     .store-steps h3 { font-size: .95rem; margin: 11px 0 6px; }
+    .store-product-coverage { display: grid; gap: 8px; list-style: none; margin: 12px 0 0; padding: 0; }
+    .store-product-coverage li { align-items: center; border-bottom: 1px solid #e8ecef; display: flex; gap: 15px; justify-content: space-between; padding: 9px 0; }
+    .store-product-coverage a { color: #174d6b; font-size: .84rem; font-weight: 750; text-decoration: none; }
+    .store-product-coverage span { color: #07825a; flex: 0 0 auto; font-size: .75rem; font-weight: 850; }
+    .store-faq-card > p, .store-related-card > p, .store-rating-empty p { color: #586a76; font-size: .86rem; line-height: 1.65; }
+    .store-faq-list details { border-top: 1px solid #e1e6e9; padding: 15px 0; }
+    .store-faq-list summary { color: #183d54; cursor: pointer; font-size: .92rem; font-weight: 850; }
+    .store-faq-list details p { color: #586a76; font-size: .84rem; line-height: 1.65; margin: 10px 0 0; }
+    .store-rating-score { align-items: center; display: flex; flex-wrap: wrap; gap: 11px; }
+    .store-rating-score strong { font-size: 2rem; }
+    .store-rating-score span { color: #f2b600; letter-spacing: .08em; }
+    .store-rating-score small { color: #667786; width: 100%; }
+    .store-rating-empty { background: #f7f9fa; border-left: 4px solid #94a5af; padding: 14px 17px; }
+    .store-rating-empty p { margin: 6px 0 0; }
+    .store-related-card > div { display: grid; gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .store-related-card > div a { align-items: center; border: 1px solid #e1e6e9; color: #174d6b; display: flex; font-size: .84rem; font-weight: 800; justify-content: space-between; padding: 12px; text-decoration: none; }
+    .store-related-card > div span { color: #738491; font-size: .7rem; font-weight: 700; }
     @media (max-width: 880px) { .store-reference-layout { grid-template-columns: 220px minmax(0, 1fr); } .store-reference-sidebar .brand-logo-shell { height: 120px; } .store-page-search { margin-left: 30px; } .store-reference-content .brand-offer-card { grid-template-columns: 84px minmax(0, 1fr); } }
     @media (max-width: 680px) { .brand-topbar-inner { align-items: stretch; flex-direction: column; gap: 12px; } .store-page-search { margin: 0; max-width: none; } .store-reference-layout { display: block; } .store-reference-sidebar { position: static; } .store-reference-sidebar .brand-hero-main { display: grid; grid-template-columns: 92px 1fr; text-align: left; } .store-reference-sidebar .brand-logo-shell { height: 92px; width: 92px; } .store-reference-sidebar .brand-eyebrow { justify-content: flex-start; } .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; } .store-stats-card { margin: 14px 0 24px; } .store-reference-content .brand-offer-tools { width: 100%; } .store-reference-content .brand-offer-search { display: none; } .store-reference-content .brand-offer-card { grid-template-columns: 76px minmax(0, 1fr); } .store-steps { grid-template-columns: 1fr; } .store-steps article { border-bottom: 1px solid #e1e5e8; border-right: 0; padding: 0 0 18px; } }
     @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
@@ -5986,7 +6188,7 @@ function storePage(group) {
           <p class="brand-eyebrow"><i></i> Verified store</p>
           <h2>${brand}</h2>
           <p class="brand-domain">${domain}</p>
-          <p class="brand-rating">★★★★★ <span>Verified offers</span></p>
+          <p class="brand-rating">${rating ? `★★★★★ <span>${rating.value.toFixed(1)} from ${rating.count} ratings</span>` : `<span>No customer ratings yet</span>`}</p>
         </div>
         <div class="brand-best-box">
           <a href="${affiliateLink}" rel="sponsored noopener">Get Coupon Alert</a>
@@ -6003,7 +6205,7 @@ function storePage(group) {
       </aside>
       <section class="store-reference-content">
         <h1>${brand} Coupons and Promo Codes</h1>
-        <p class="brand-copy">Browse verified ${brand} coupon codes and deals. Product names and descriptions below come from each original product link or the original AloCoupon API record.</p>
+        <p class="brand-copy">Compare ${group.items.length} verified ${brand} coupon codes, promo codes, and ${storeCategory} discounts. Product names, eligibility notes, and descriptions below come from the original product link or AloCoupon's source API record. Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
@@ -6019,13 +6221,16 @@ function storePage(group) {
     </section>
     <p class="brand-empty" hidden>No offers match your search.</p>
     <section class="store-about-card">
-      <h2>About store</h2>
-      <h3>About ${brand}</h3>
+      <h2>About ${brand} coupons and deals</h2>
+      <h3>What ${brand} sells</h3>
       <p>${aboutCopy}</p>
-      <h3>Product range</h3>
-      <p>${brand} offers products and promotions in ${storeCategory}. Open an offer to review the latest product details, price, availability, shipping, and terms on the original website.</p>
-      <h3>Why shop through AloCoupon?</h3>
-      <p>AloCoupon keeps the original product title and description tied to its source link, while showing available coupon codes and deals in one place.</p>
+      <p>Based on the offers currently available through AloCoupon, ${brand} is listed in <strong>${storeCategory}</strong>. This page contains ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} code-free ${dealCount === 1 ? "deal" : "deals"}. The strongest listed saving is ${bestOffer}, and the records were last checked on ${updatedLabel}. The merchant domain connected to these offers is ${domain}.</p>
+      <h3>Current product and promotion coverage</h3>
+      <ul class="store-product-coverage">${productCoverage}</ul>
+      <h3>How AloCoupon verifies ${brand} offers</h3>
+      <p>Each offer keeps its original destination URL and source wording. AloCoupon separates coupon codes from automatic deals, records the advertised saving, and displays a confirmed expiration date only when the source data supplies a valid date. If a date is missing, the page says “Expiry not provided” instead of using an unsupported countdown label.</p>
+      <h3>What to check before buying</h3>
+      <p>Open the original product page and confirm eligible items, minimum-spend rules, regional restrictions, shipping costs, exclusions, and the final checkout total. Prices and availability can change after AloCoupon's last check, so the merchant checkout remains the final source for purchase terms.</p>
     </section>
     <section class="store-how-card">
       <h2>How to apply ${brand} coupon codes</h2>
@@ -6035,6 +6240,22 @@ function storePage(group) {
         <article><b>3</b><h3>Apply and verify</h3><p>Enter the copied code at checkout and confirm the final price before ordering.</p></article>
       </div>
     </section>
+    <section class="store-faq-card" id="store-faq">
+      <h2>${brand} coupon FAQ</h2>
+      <p>These answers reflect the ${group.items.length} offers and expiration fields currently stored for ${brand}.</p>
+      <div class="store-faq-list">${faqRows}</div>
+    </section>
+    <section class="store-rating-card">
+      <h2>${brand} shopper rating</h2>
+      ${rating
+        ? `<div class="store-rating-score"><strong>${rating.value.toFixed(1)}</strong><span>★★★★★</span><small>${rating.count} customer ratings</small></div>`
+        : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>AloCoupon has no verified customer rating records for ${brand}, so no AggregateRating schema is published. This avoids showing an unsupported score in search results.</p></div>`}
+    </section>
+    <nav class="store-related-card" aria-label="Related coupon stores">
+      <h2>Explore related coupon stores</h2>
+      <p>Continue browsing stores with active offers, or return to the <a href="/#categories">${storeCategory} and shopping categories</a> directory.</p>
+      <div>${relatedStoreLinks}</div>
+    </nav>
       </section>
     </div>
     <p class="brand-trust-note"><strong>✓ Verified</strong> · Affiliate links may earn AloCoupon a commission at no extra cost to you.</p>

@@ -6592,7 +6592,6 @@ function storePage(group) {
           <div><span>Coupon Codes</span><b>${codeCount}</b></div>
           <div><span>Deals</span><b>${dealCount}</b></div>
           <div><span>Best Offer</span><b>${bestOffer}</b></div>
-          <div><span>Last Checked</span><b>${updatedLabel}</b></div>
         </section>
       </aside>
       <section class="store-reference-content">

@@ -20,6 +20,7 @@ const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
 const adminCategoriesFile = path.join(dataDir, "admin-categories.json");
 const subscribersFile = path.join(dataDir, "subscribers.json");
+const legacyCmsFile = path.join(dataDir, "legacy-cms.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
@@ -2873,6 +2874,30 @@ function writeSubscribers(subscribers) {
 function readTrustpilotReviews() {
   ensureDataFile();
   return readJsonArrayFile(trustpilotReviewsFile);
+}
+
+function readLegacyCmsSnapshot() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(legacyCmsFile, "utf8").replace(/^\uFEFF/, ""));
+    if (parsed?.format !== "alocoupon-legacy-cms" || parsed?.version !== 1 || !parsed.tables || typeof parsed.tables !== "object") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getLegacyCmsSummary(snapshot) {
+  if (!snapshot) return { available: false, source: "", tables: {} };
+  return {
+    available: true,
+    source: String(snapshot.source || ""),
+    tables: Object.fromEntries(Object.entries(snapshot.tables).map(([name, table]) => [name, {
+      columns: Array.isArray(table?.schema?.columns) ? table.schema.columns : [],
+      records: Array.isArray(table?.records) ? table.records.length : 0,
+    }])),
+  };
 }
 
 function readProjects() {
@@ -6146,6 +6171,32 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/admin/categories") {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
       sendJson(res, 200, readAdminCategoryPreferences());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/legacy-cms") {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      sendJson(res, 200, getLegacyCmsSummary(readLegacyCmsSnapshot()));
+      return;
+    }
+
+    const legacyCmsTableMatch = url.pathname.match(/^\/api\/admin\/legacy-cms\/([a-z_]+)$/);
+    if (req.method === "GET" && legacyCmsTableMatch) {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: "Admin login required." });
+      const snapshot = readLegacyCmsSnapshot();
+      const tableName = legacyCmsTableMatch[1];
+      const table = snapshot?.tables?.[tableName];
+      if (!table || !Array.isArray(table.records)) return sendJson(res, 404, { error: "Legacy CMS table not found." });
+      const offset = Math.max(0, Math.min(1_000_000, Number(url.searchParams.get("offset")) || 0));
+      const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 50));
+      sendJson(res, 200, {
+        table: tableName,
+        columns: Array.isArray(table.schema?.columns) ? table.schema.columns : [],
+        total: table.records.length,
+        offset,
+        limit,
+        records: table.records.slice(offset, offset + limit),
+      });
       return;
     }
 

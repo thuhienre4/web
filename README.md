@@ -42,6 +42,33 @@ npm run check
 - `data/offers.json` starts empty so real offers can be uploaded from admin.
 - `data/projects.json` stores project metadata; uploaded files are stored in `data/project-uploads/`.
 - `data/admin-emails.json` controls which emails can log in locally.
+- `data/legacy-cms.json` is an isolated, read-only snapshot of an imported legacy
+  MariaDB CMS. It does not replace the current offers, settings, or admin data.
+
+## Import A Legacy MySQL Dump
+
+The legacy importer accepts plain `.sql` and compressed `.sql.gz` dumps. It
+recreates the old CMS structure and content in a separate JSON snapshot, so the
+current website content and functionality remain unchanged.
+
+```powershell
+npm run import:legacy -- "D:\path\to\backup.sql.gz"
+```
+
+Validate a dump without writing anything:
+
+```powershell
+npm run import:legacy -- "D:\path\to\backup.sql.gz" --check
+```
+
+Imported tables include categories, stores, offers, deals, posts, pages, menus,
+widgets, settings, slugs, feedbacks, and discounts. The importer never edits
+`data/offers.json`, `data/site-settings.json`, users, subscribers, or assets.
+
+After import, authenticated admin clients can inspect the isolated snapshot at:
+
+- `GET /api/admin/legacy-cms` for table structure and record counts
+- `GET /api/admin/legacy-cms/:table?offset=0&limit=50` for paginated records
 
 Production can override admin emails with:
 

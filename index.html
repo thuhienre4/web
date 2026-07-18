@@ -132,7 +132,7 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="styles.css?v=20260715-2" />
+    <link rel="stylesheet" href="styles.css?v=20260718-3" />
   </head>
   <body class="teela-inspired-theme">
     <a class="skip-link" href="#home">Skip to main content</a>
@@ -441,7 +441,6 @@
 
       <section class="section deal-band reveal is-visible" id="deals">
         <div class="container">
-          <div class="deal-slider-dots" id="deal-slider-dots" aria-label="Deal pages"></div>
           <div class="section-title">
             <h2 data-i18n="deals.title">Deals Of Today</h2>
             <a href="#deals" data-i18n="deals.link">Deals</a>
@@ -469,7 +468,12 @@
             </div>
             <div class="deal-category-filter" id="deal-category-filter" aria-label="Filter deals by category"></div>
           </details>
-          <div class="deal-grid" id="deal-search-results"></div>
+          <div class="horizontal-carousel deal-horizontal-carousel" data-carousel="deals">
+            <button class="carousel-arrow carousel-arrow-prev" type="button" data-carousel-direction="prev" aria-label="Previous deals">&#8249;</button>
+            <div class="deal-grid carousel-track" id="deal-search-results"></div>
+            <button class="carousel-arrow carousel-arrow-next" type="button" data-carousel-direction="next" aria-label="Next deals">&#8250;</button>
+          </div>
+          <div class="deal-slider-dots carousel-page-dots" id="deal-slider-dots" aria-label="Deal pages"></div>
           <p class="deal-empty-state" id="deal-empty-state">No real deals yet. Admin-approved offers will appear here.</p>
         </div>
       </section>
@@ -479,7 +483,7 @@
           <h2 data-i18n="stores.title">Popular Store</h2>
           <a href="#deals" data-i18n="stores.link">View All Deals</a>
         </div>
-        <p class="section-intro" data-i18n="stores.intro">Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.</p>
+        <p class="section-intro" data-i18n="stores.intro" hidden>Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.</p>
         <div class="store-directory-toolbar">
           <label class="store-directory-search" for="store-search-input">
             <span>Find a store</span>
@@ -491,7 +495,9 @@
             <span><strong id="store-offer-total">0</strong> active offers</span>
           </p>
         </div>
-        <div class="store-grid" id="popular-store-grid" aria-label="Store directory">
+        <div class="horizontal-carousel store-horizontal-carousel" data-carousel="stores">
+          <button class="carousel-arrow carousel-arrow-prev" type="button" data-carousel-direction="prev" aria-label="Previous stores">&#8249;</button>
+          <div class="store-grid carousel-track" id="popular-store-grid" aria-label="Store directory">
           <article class="store-card">
             <div class="store-logo">FC</div>
             <h3>Fortress Clothing</h3>
@@ -524,7 +530,10 @@
             <div class="store-logo coral">JB</div>
             <h3>Jennibag</h3>
           </article>
+          </div>
+          <button class="carousel-arrow carousel-arrow-next" type="button" data-carousel-direction="next" aria-label="Next stores">&#8250;</button>
         </div>
+        <div class="carousel-page-dots store-slider-dots" id="store-slider-dots" aria-label="Store pages"></div>
         <p class="store-directory-empty" id="store-directory-empty" hidden>No stores match your search.</p>
         <div class="store-directory-actions">
           <button class="store-show-all" id="store-show-all" type="button" aria-controls="popular-store-grid">Show all stores</button>
@@ -660,6 +669,6 @@
     <div class="toast" role="status" aria-live="polite"></div>
     <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
     <noscript><p class="noscript-note">Enable JavaScript to load the latest verified coupon and deal data.</p></noscript>
-    <script src="script.js?v=20260715-2" defer></script>
+    <script src="script.js?v=20260718-3" defer></script>
   </body>
 </html>

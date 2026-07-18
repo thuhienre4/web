@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node local-server.js",
     "dev": "set OPEN_BROWSER=1&& node local-server.js",
-    "check": "node --check local-server.js && node --check script.js && node --check scripts/import-legacy-mysql.js && node --check scripts/extract-brand-logos.js && node --check scripts/extract-brand-landings.js && node --check scripts/extract-product-images.js && node --check scripts/sync-trustpilot-reviews.js",
-    "import:legacy": "node scripts/import-legacy-mysql.js",
+    "check": "node --check local-server.js && node --check script.js && node --check scripts/extract-brand-logos.js && node --check scripts/extract-brand-landings.js && node --check scripts/extract-product-images.js && node --check scripts/sync-trustpilot-reviews.js",
     "extract:logos": "node scripts/extract-brand-logos.js",
     "extract:landings": "node scripts/extract-brand-landings.js",
     "extract:products": "node scripts/extract-product-images.js",

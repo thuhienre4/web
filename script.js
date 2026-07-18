@@ -22,7 +22,7 @@ const translations = {
     "hero.copy": "Discover verified affiliate offers, featured stores, product reviews, and limited-time coupon codes for software, AI tools, ecommerce products, fashion, food, electronics, and more.",
     "hero.primary": "Browse Today's Deals",
     "hero.secondary": "Explore Stores",
-    "stores.title": "All Stores",
+    "stores.title": "Popular Store",
     "stores.link": "View All Deals",
     "stores.intro": "Explore stores and brands with active affiliate campaigns, product discounts, and coupon opportunities.",
     "deals.title": "Deals Of Today",
@@ -350,16 +350,17 @@ document.querySelectorAll(".claim-btn").forEach((button) => {
   bindCouponButton(button);
 });
 
-document.querySelector(".search-box")?.addEventListener("submit", (event) => {
+document.querySelectorAll(".search-box").forEach((form) => form.addEventListener("submit", (event) => {
   event.preventDefault();
   const query = event.currentTarget.querySelector("input")?.value || "";
+  document.querySelectorAll(".search-box input").forEach((input) => { input.value = query; });
   if (dealSearchInputEl) {
     dealSearchInputEl.value = query;
   }
   filterDeals(query);
   document.querySelector("#deals")?.scrollIntoView({ behavior: "smooth" });
   showToast(query.trim() ? `Showing deals for "${query.trim()}".` : t("searchToast"));
-});
+}));
 
 const storeToolPanels = document.querySelectorAll(".is-tool-panel");
 const storeToolTriggers = document.querySelectorAll(".store-tool-trigger");
@@ -4493,10 +4494,10 @@ async function applyPublicSiteSettings() {
     }
     const heroTitle = document.querySelector("#home h1");
     const heroDescription = document.querySelector("#home .hero-copy");
-    const tagline = document.querySelector(".header-tagline");
+    const taglines = document.querySelectorAll(".header-tagline, .teela-home-slogan");
     if (heroTitle && settings.homeTitle) heroTitle.textContent = settings.homeTitle;
     if (heroDescription && settings.homeDescription) heroDescription.textContent = settings.homeDescription;
-    if (tagline && settings.slogan) tagline.textContent = settings.slogan;
+    if (settings.slogan) taglines.forEach((tagline) => { tagline.textContent = settings.slogan; });
     const newsletterTitle = document.querySelector("#newsletter-title");
     const newsletterDescription = document.querySelector("#newsletter-description");
     if (newsletterTitle && settings.widgetTitle) newsletterTitle.textContent = settings.widgetTitle;
@@ -4527,6 +4528,18 @@ async function applyPublicSiteSettings() {
       }
       customLogo.src = settings.logoData;
       customLogo.alt = settings.siteName || "Site logo";
+    }
+    const homeBrand = document.querySelector(".teela-home-brand");
+    if (homeBrand && settings.logoData) {
+      homeBrand.querySelectorAll(".brand-mark, .brand-word").forEach((item) => { item.hidden = true; });
+      let homeLogo = homeBrand.querySelector(".custom-site-logo");
+      if (!homeLogo) {
+        homeLogo = document.createElement("img");
+        homeLogo.className = "custom-site-logo teela-home-logo";
+        homeBrand.appendChild(homeLogo);
+      }
+      homeLogo.src = settings.logoData;
+      homeLogo.alt = settings.siteName || "Site logo";
     }
     if (settings.faviconData) {
       let favicon = document.querySelector('link[rel="icon"]');

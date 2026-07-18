@@ -3175,7 +3175,7 @@ let activeDealType = "all";
 let activeDealStore = "all";
 let lastAffiliateItems = [];
 let activeDealPage = 0;
-let activeHeroStoreIndex = 0;
+let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
 const dealsPerPage = 12;
 
@@ -4088,8 +4088,8 @@ function renderLandingHero(items) {
     const image = banner.querySelector("img");
     const label = banner.querySelector(".home-banner-copy small");
     const title = banner.querySelector(".home-banner-copy strong");
-    const source = item.productImage || item.landingImage || item.logo;
-    banner.classList.toggle("uses-product-image", Boolean(item.productImage));
+    const source = item.landingImage || item.productImage || item.logo;
+    banner.classList.toggle("uses-product-image", Boolean(!item.landingImage && item.productImage));
     if (image) {
       image.src = source;
       image.alt = `${brand} product deal`;
@@ -4143,30 +4143,73 @@ function renderLandingHero(items) {
   selectStore(activeHeroStoreIndex, { instant: true });
 }
 
-function renderDealPagination(matchedDeals) {
-  const deals = Array.from(document.querySelectorAll("#deals .searchable-deal"));
-  const totalPages = Math.ceil(matchedDeals.length / dealsPerPage);
-  activeDealPage = Math.max(0, Math.min(activeDealPage, Math.max(0, totalPages - 1)));
-  const start = activeDealPage * dealsPerPage;
-  const pageItems = new Set(matchedDeals.slice(start, start + dealsPerPage));
+function getCarouselDots(name) {
+  return document.querySelector(name === "deals" ? "#deal-slider-dots" : "#store-slider-dots");
+}
 
-  deals.forEach((deal) => {
-    deal.hidden = !pageItems.has(deal);
-  });
+function refreshHorizontalCarousel(name) {
+  const root = document.querySelector(`[data-carousel="${name}"]`);
+  const track = root?.querySelector(".carousel-track");
+  const dots = getCarouselDots(name);
+  if (!root || !track || !dots) return;
 
-  if (!dealSliderDotsEl) return;
-  dealSliderDotsEl.hidden = totalPages <= 1;
-  dealSliderDotsEl.innerHTML = Array.from({ length: totalPages }, (_, index) => `
-    <button class="deal-page-dot${index === activeDealPage ? " is-active" : ""}" type="button" data-page="${index}" aria-label="Show deal page ${index + 1}" aria-pressed="${index === activeDealPage}"></button>
-  `).join("");
-  dealSliderDotsEl.querySelectorAll(".deal-page-dot").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeDealPage = Number(button.dataset.page || 0);
-      const currentMatches = deals.filter((deal) => deal.dataset.filterMatch === "true");
-      renderDealPagination(currentMatches);
-      document.querySelector("#deals .section-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+  const estimatedPages = maxScroll > 4
+    ? Math.ceil(maxScroll / Math.max(1, track.clientWidth * 0.9)) + 1
+    : 1;
+  const dotCount = Math.min(12, estimatedPages);
+  const signature = `${dotCount}:${Math.round(maxScroll)}`;
+
+  if (dots.dataset.signature !== signature) {
+    dots.dataset.signature = signature;
+    dots.innerHTML = Array.from({ length: dotCount }, (_, index) => `
+      <button class="deal-page-dot" type="button" data-carousel-page="${index}" aria-label="Show ${name} page ${index + 1}" aria-pressed="false"></button>
+    `).join("");
+    dots.querySelectorAll("[data-carousel-page]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const page = Number(button.dataset.carouselPage || 0);
+        const left = dotCount <= 1 ? 0 : maxScroll * (page / (dotCount - 1));
+        track.scrollTo({ left, behavior: "smooth" });
+      });
     });
+  }
+
+  const progress = maxScroll > 0 ? track.scrollLeft / maxScroll : 0;
+  const activeDot = dotCount <= 1 ? 0 : Math.round(progress * (dotCount - 1));
+  dots.hidden = dotCount <= 1;
+  dots.querySelectorAll("[data-carousel-page]").forEach((button, index) => {
+    const active = index === activeDot;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+
+  const previous = root.querySelector('[data-carousel-direction="prev"]');
+  const next = root.querySelector('[data-carousel-direction="next"]');
+  if (previous) previous.disabled = maxScroll <= 4 || track.scrollLeft <= 4;
+  if (next) next.disabled = maxScroll <= 4 || track.scrollLeft >= maxScroll - 4;
+
+  if (root.dataset.carouselBound !== "true") {
+    root.dataset.carouselBound = "true";
+    root.querySelectorAll("[data-carousel-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = button.dataset.carouselDirection === "prev" ? -1 : 1;
+        track.scrollBy({ left: direction * track.clientWidth * 0.9, behavior: "smooth" });
+      });
+    });
+    track.addEventListener("scroll", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
+    window.addEventListener("resize", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
+  }
+}
+
+function renderDealPagination(matchedDeals) {
+  const matchedSet = new Set(matchedDeals);
+  document.querySelectorAll("#deals .searchable-deal").forEach((deal) => {
+    deal.hidden = !matchedSet.has(deal);
+  });
+  activeDealPage = 0;
+  const track = document.querySelector('[data-carousel="deals"] .carousel-track');
+  if (track) track.scrollLeft = 0;
+  window.requestAnimationFrame(() => refreshHorizontalCarousel("deals"));
 }
 
 function renderPopularStores(items) {
@@ -4248,6 +4291,7 @@ function renderPopularStores(items) {
         : `Show all ${directoryStores.length} stores`;
       showAllButton.setAttribute("aria-expanded", String(showAllStores));
     }
+    window.requestAnimationFrame(() => refreshHorizontalCarousel("stores"));
   };
 
   if (searchInput) {

@@ -3385,9 +3385,39 @@ function resolveImportedImage(value, pageUrl) {
   }
 }
 
+function cleanImportedText(value, maxLength = 1200) {
+  return decodeImportedHtml(String(value || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\\[nrt]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()).slice(0, maxLength);
+}
+
+function findImportedProduct(value) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const product = findImportedProduct(item);
+      if (product) return product;
+    }
+    return null;
+  }
+  const types = Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]];
+  if (types.some((type) => String(type || "").toLowerCase() === "product")) return value;
+  for (const key of ["@graph", "mainEntity", "itemListElement"]) {
+    const product = findImportedProduct(value[key]);
+    if (product) return product;
+  }
+  return null;
+}
+
 function discoverStoreAssets(html, pageUrl) {
   const logos = [];
   const products = [];
+  let sourceTitle = "";
+  let sourceDescription = "";
+  let sourcePrice = "";
+  let sourceCurrency = "";
   const add = (collection, value) => {
     const resolved = resolveImportedImage(value, pageUrl);
     if (resolved && !collection.includes(resolved)) collection.push(resolved);
@@ -3397,6 +3427,10 @@ function discoverStoreAssets(html, pageUrl) {
     const marker = (readImportedAttribute(tag, "property") || readImportedAttribute(tag, "name")).toLowerCase();
     if (["og:logo", "twitter:logo"].includes(marker)) add(logos, readImportedAttribute(tag, "content"));
     if (["og:image", "twitter:image", "twitter:image:src"].includes(marker)) add(products, readImportedAttribute(tag, "content"));
+    if (!sourceTitle && ["og:title", "twitter:title"].includes(marker)) sourceTitle = cleanImportedText(readImportedAttribute(tag, "content"), 240);
+    if (!sourceDescription && ["description", "og:description", "twitter:description"].includes(marker)) sourceDescription = cleanImportedText(readImportedAttribute(tag, "content"));
+    if (!sourcePrice && ["product:price:amount", "og:price:amount"].includes(marker)) sourcePrice = cleanImportedText(readImportedAttribute(tag, "content"), 40);
+    if (!sourceCurrency && ["product:price:currency", "og:price:currency"].includes(marker)) sourceCurrency = cleanImportedText(readImportedAttribute(tag, "content"), 12).toUpperCase();
   }
   for (const match of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
     const tag = match[0];
@@ -3414,7 +3448,28 @@ function discoverStoreAssets(html, pageUrl) {
   for (const pattern of [/"logo"\s*:\s*"([^"]+)"/gi, /"image"\s*:\s*"([^"]+)"/gi]) {
     for (const match of html.matchAll(pattern)) add(pattern.source.includes("logo") ? logos : products, match[1].replace(/\\\//g, "/"));
   }
-  return { logo: logos[0] || "", productImage: products.find((url) => !/logo|favicon|icon|avatar|payment/i.test(url)) || "" };
+  for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const product = findImportedProduct(JSON.parse(decodeImportedHtml(match[1]).trim()));
+      if (!product) continue;
+      sourceTitle ||= cleanImportedText(product.name, 240);
+      sourceDescription ||= cleanImportedText(product.description);
+      const productImages = Array.isArray(product.image) ? product.image : [product.image];
+      productImages.forEach((image) => add(products, typeof image === "object" ? image?.url : image));
+      const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
+      sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
+      sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+    } catch {}
+  }
+  if (!sourceTitle) sourceTitle = cleanImportedText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1], 240);
+  return {
+    logo: logos[0] || "",
+    productImage: products.find((url) => !/logo|favicon|icon|avatar|payment/i.test(url)) || "",
+    sourceTitle,
+    sourceDescription,
+    sourcePrice,
+    sourceCurrency,
+  };
 }
 
 async function extractStoreAssets(value) {
@@ -3871,7 +3926,7 @@ function storeStructuredData(group) {
           "@type": "ListItem",
           "position": index + 1,
           "url": getAbsoluteUrl(getOfferDealPath(offer)),
-          "name": getDisplayOfferTitle(offer),
+          "name": String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(),
         })),
       },
     ],
@@ -3923,6 +3978,11 @@ function sanitizeOffer(input) {
     order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
     visible: input.visible !== false && String(input.visible).toLowerCase() !== "false",
     metaTitle: String(input.metaTitle || input.title || "").trim().slice(0, 180),
+    sourceTitle: String(input.sourceTitle || "").trim().slice(0, 240),
+    sourceDescription: String(input.sourceDescription || "").trim().slice(0, 1200),
+    sourcePrice: String(input.sourcePrice || "").trim().slice(0, 40),
+    sourceCurrency: String(input.sourceCurrency || "").trim().toUpperCase().slice(0, 12),
+    sourceUrl: String(input.sourceUrl || input.assetSourceUrl || "").trim().slice(0, 2000),
     createdAt: new Date().toISOString(),
   };
 
@@ -5743,15 +5803,21 @@ function storePage(group) {
   const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
-  const offerRows = group.items.map((offer, index) => {
-    const title = escapeHtml(getDisplayOfferTitle(offer));
-    const summary = escapeHtml(getOfferSummary(offer));
+  const sourceDescriptions = [...new Set(group.items.map((offer) => String(offer.sourceDescription || offer.review || "").trim()).filter(Boolean))];
+  const aboutCopy = escapeHtml(sourceDescriptions.slice(0, 3).join(" ") || `${group.brand} offers products and promotions through its official website. Review the original product information before completing a purchase.`);
+  const storeCategory = escapeHtml(primaryOffer.category || "Online Store");
+  const offerRows = group.items.map((offer) => {
+    const sourceTitle = String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim();
+    const sourceSummary = String(offer.sourceDescription || offer.review || offer.title || sourceTitle).trim();
+    const title = escapeHtml(sourceTitle);
+    const summary = escapeHtml(sourceSummary);
     const discount = escapeHtml(formatStoreDiscount(offer.discount));
     const hasCode = isUsableCouponCode(offer.code);
     const code = escapeHtml(hasCode ? offer.code : "No code needed");
     const typeLabel = hasCode ? "Coupon code" : "Online deal";
     const expiry = escapeHtml(offer.expiry || "Limited time");
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
     return `
       <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount} ${code}`.toLowerCase())}">
         <div class="brand-offer-discount"><strong>${discount}</strong><span>${hasCode ? "COUPON" : "DEAL"}</span></div>
@@ -5759,13 +5825,9 @@ function storePage(group) {
           <div class="brand-offer-meta"><span class="offer-type-dot"></span>${typeLabel}<span>•</span><span>${expiry}</span><span class="verified-label">✓ Verified</span></div>
           <h2>${title}</h2>
           <p>${summary}</p>
-          <div class="brand-offer-code-row">
-            <span>${hasCode ? "Promo code" : "How to redeem"}</span>
-            <strong>${code}</strong>
-          </div>
+          <small class="brand-source-note">Source: original product link${sourcePrice ? ` &middot; ${sourcePrice}` : ""} &middot; ${expiry}</small>
         </div>
         <div class="brand-offer-side">
-          <small>#${index + 1} store offer</small>
           <a class="brand-offer-action" href="${safeLink}" data-code="${hasCode ? code : ""}" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
         </div>
       </article>
@@ -5851,6 +5913,50 @@ function storePage(group) {
     .brand-empty { background: #fff; border: 1px dashed #bac7cf; border-radius: 14px; color: #6e7f8b; padding: 30px; text-align: center; }
     .brand-trust-note { align-items: center; color: #748590; display: flex; font-size: .76rem; gap: 7px; justify-content: center; margin: 24px 0 0; }
     .brand-trust-note strong { color: var(--store-green); }
+    .brand-back-link { display: none; }
+    .store-page-search { display: flex; flex: 1; margin-left: 90px; max-width: 680px; }
+    .store-page-search input { border: 1px solid #cfd6dc; border-radius: 4px 0 0 4px; flex: 1; font-size: .95rem; min-width: 0; padding: 13px 16px; }
+    .store-page-search button { background: #079d13; border: 0; border-radius: 0 4px 4px 0; color: #fff; cursor: pointer; font-weight: 800; padding: 0 22px; }
+    .store-reference-layout { align-items: start; display: grid; gap: 26px; grid-template-columns: 270px minmax(0, 1fr); }
+    .store-reference-sidebar { display: grid; gap: 18px; position: sticky; top: 16px; }
+    .store-reference-content { min-width: 0; }
+    .store-reference-content > h1 { font-size: 2rem; margin: 0 0 13px; }
+    .store-reference-content > .brand-copy { margin-bottom: 22px; max-width: 850px; }
+    .store-reference-sidebar .brand-hero { border-radius: 3px; box-shadow: 0 2px 9px rgba(0,0,0,.08); padding: 22px; }
+    .store-reference-sidebar .brand-hero-main { display: flex; flex-direction: column; gap: 14px; text-align: center; }
+    .store-reference-sidebar .brand-logo-shell { border-radius: 2px; height: 150px; width: 100%; }
+    .store-reference-sidebar .brand-identity h2 { font-size: 1.35rem; margin: 0 0 5px; overflow-wrap: anywhere; }
+    .store-reference-sidebar .brand-eyebrow { justify-content: center; }
+    .brand-rating { color: #f2b600; font-size: .88rem; font-weight: 900; margin: 7px 0 0; }
+    .brand-rating span { color: #738491; font-size: .72rem; font-weight: 700; }
+    .store-reference-sidebar .brand-best-box { background: transparent; padding: 0; width: 100%; }
+    .store-reference-sidebar .brand-best-box a { background: #079d13; border-radius: 3px; }
+    .store-stats-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; box-shadow: 0 2px 9px rgba(0,0,0,.06); padding: 18px; }
+    .store-stats-card > strong { display: block; font-size: .92rem; line-height: 1.5; text-align: center; }
+    .store-stats-card div { align-items: center; border-top: 1px solid #e5e8ea; display: flex; font-size: .8rem; justify-content: space-between; margin-top: 11px; padding-top: 11px; }
+    .store-stats-card div span { color: #6e7c85; }
+    .store-stats-card div b { color: #079d13; max-width: 50%; text-align: right; }
+    .store-reference-content .brand-offers-head { align-items: center; background: #fff; border-bottom: 1px solid #d9dee2; margin: 0 0 15px; padding: 0; }
+    .store-reference-content .brand-offers-head > div:first-child { display: none; }
+    .store-reference-content .brand-offer-tools { gap: 0; overflow-x: auto; }
+    .store-reference-content .brand-filter { border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 14px 18px; white-space: nowrap; }
+    .store-reference-content .brand-filter.is-active { background: #fff; border-bottom-color: #079d13; color: #079d13; }
+    .store-reference-content .brand-offer-search { border-radius: 3px; margin-right: 12px; }
+    .store-reference-content .brand-offer-card { border-radius: 3px; box-shadow: 0 2px 8px rgba(0,0,0,.05); grid-template-columns: 100px minmax(0,1fr) 150px; }
+    .store-reference-content .brand-offer-discount { background: #effaec; border: 1px dashed #86ca79; border-radius: 2px; color: #16810b; }
+    .store-reference-content .brand-offer-action { background: #079d13; border-radius: 3px; font-size: .9rem; }
+    .brand-source-note, .brand-code-preview { color: #8a969e; display: block; font-size: .68rem; }
+    .store-about-card, .store-how-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; margin-top: 28px; padding: 26px; }
+    .store-about-card h2, .store-how-card h2 { font-size: 1.5rem; margin: 0 0 20px; }
+    .store-about-card h3 { font-size: 1rem; margin: 20px 0 6px; }
+    .store-about-card p, .store-steps p { color: #586a76; font-size: .86rem; line-height: 1.65; margin: 0; }
+    .store-steps { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+    .store-steps article { border-right: 1px solid #e1e5e8; padding-right: 18px; }
+    .store-steps article:last-child { border: 0; }
+    .store-steps b { align-items: center; background: #079d13; border-radius: 50%; color: #fff; display: flex; height: 32px; justify-content: center; width: 32px; }
+    .store-steps h3 { font-size: .95rem; margin: 11px 0 6px; }
+    @media (max-width: 880px) { .store-reference-layout { grid-template-columns: 220px minmax(0, 1fr); } .store-reference-sidebar .brand-logo-shell { height: 120px; } .store-page-search { margin-left: 30px; } .store-reference-content .brand-offer-card { grid-template-columns: 84px minmax(0, 1fr); } }
+    @media (max-width: 680px) { .brand-topbar-inner { align-items: stretch; flex-direction: column; gap: 12px; } .store-page-search { margin: 0; max-width: none; } .store-reference-layout { display: block; } .store-reference-sidebar { position: static; } .store-reference-sidebar .brand-hero-main { display: grid; grid-template-columns: 92px 1fr; text-align: left; } .store-reference-sidebar .brand-logo-shell { height: 92px; width: 92px; } .store-reference-sidebar .brand-eyebrow { justify-content: flex-start; } .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; } .store-stats-card { margin: 14px 0 24px; } .store-reference-content .brand-offer-tools { width: 100%; } .store-reference-content .brand-offer-search { display: none; } .store-reference-content .brand-offer-card { grid-template-columns: 76px minmax(0, 1fr); } .store-steps { grid-template-columns: 1fr; } .store-steps article { border-bottom: 1px solid #e1e5e8; border-right: 0; padding: 0 0 18px; } }
     @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
     @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 14px; grid-template-columns: 88px 1fr; } .brand-logo-shell { border-radius: 16px; height: 88px; padding: 7px; width: 88px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
   </style>
@@ -5859,49 +5965,78 @@ function storePage(group) {
   <header class="brand-topbar">
     <div class="brand-topbar-inner">
       <a class="brand-site-logo" href="/">Alo<span>Coupon</span></a>
+      <form class="store-page-search" action="/" method="get">
+        <input name="q" type="search" placeholder="Search Stores" aria-label="Search stores" />
+        <button type="submit">Search</button>
+      </form>
       <a class="brand-back-link" href="/#stores">← Explore all stores</a>
     </div>
   </header>
   <main class="brand-page">
     <p class="brand-breadcrumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/#stores">Stores</a> &nbsp;/&nbsp; <strong>${brand}</strong></p>
-    <section class="brand-hero">
-      <div class="brand-hero-main">
+    <div class="store-reference-layout">
+      <aside class="store-reference-sidebar">
+        <section class="brand-hero">
+          <div class="brand-hero-main">
         <div class="brand-logo-shell">
           <span class="brand-logo-fallback"${logo ? ` style="display:none"` : ""}>${initials}</span>
           ${logo ? `<img src="${logo}" alt="${brand} logo" onerror="this.hidden=true;this.previousElementSibling.style.display='flex'" />` : ""}
         </div>
-        <div>
+        <div class="brand-identity">
           <p class="brand-eyebrow"><i></i> Verified store</p>
-          <h1>${brand} Coupons & Deals</h1>
+          <h2>${brand}</h2>
           <p class="brand-domain">${domain}</p>
-          <p class="brand-copy">${description}</p>
+          <p class="brand-rating">★★★★★ <span>Verified offers</span></p>
         </div>
         <div class="brand-best-box">
-          <span>Best available offer</span>
-          <strong>${bestOffer}</strong>
-          <a href="${affiliateLink}" rel="sponsored noopener">Visit ${brand}</a>
+          <a href="${affiliateLink}" rel="sponsored noopener">Get Coupon Alert</a>
         </div>
-      </div>
-      <div class="brand-stats">
-        <div class="brand-stat"><strong>${group.items.length}</strong><span>Active offers</span></div>
-        <div class="brand-stat"><strong>${codeCount}</strong><span>Coupon codes</span></div>
-        <div class="brand-stat"><strong>${dealCount}</strong><span>Online deals</span></div>
-        <div class="brand-stat"><strong>${updatedLabel}</strong><span>Last checked</span></div>
-      </div>
-    </section>
+          </div>
+        </section>
+        <section class="store-stats-card">
+          <strong>${codeCount} Coupon Codes</strong><strong>${group.items.length} Verified Offers</strong>
+          <div><span>Coupon Codes</span><b>${codeCount}</b></div>
+          <div><span>Deals</span><b>${dealCount}</b></div>
+          <div><span>Best Offer</span><b>${bestOffer}</b></div>
+          <div><span>Last Checked</span><b>${updatedLabel}</b></div>
+        </section>
+      </aside>
+      <section class="store-reference-content">
+        <h1>${brand} Coupons and Promo Codes</h1>
+        <p class="brand-copy">Browse verified ${brand} coupon codes and deals. Product names and descriptions below come from each original product link or the original AloCoupon API record.</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
         <input class="brand-offer-search" type="search" placeholder="Search offers..." aria-label="Search store offers" />
-        <button class="brand-filter is-active" type="button" data-filter="all">All</button>
-        <button class="brand-filter" type="button" data-filter="code">Codes</button>
-        <button class="brand-filter" type="button" data-filter="deal">Deals</button>
+        <button class="brand-filter is-active" type="button" data-filter="all">All (${group.items.length})</button>
+        <button class="brand-filter" type="button" data-filter="verified">Verified (${group.items.length})</button>
+        <button class="brand-filter" type="button" data-filter="code">Codes (${codeCount})</button>
+        <button class="brand-filter" type="button" data-filter="deal">Deals (${dealCount})</button>
       </div>
     </div>
     <section class="brand-offer-list" aria-label="${brand} offers">
       ${offerRows}
     </section>
     <p class="brand-empty" hidden>No offers match your search.</p>
+    <section class="store-about-card">
+      <h2>About store</h2>
+      <h3>About ${brand}</h3>
+      <p>${aboutCopy}</p>
+      <h3>Product range</h3>
+      <p>${brand} offers products and promotions in ${storeCategory}. Open an offer to review the latest product details, price, availability, shipping, and terms on the original website.</p>
+      <h3>Why shop through AloCoupon?</h3>
+      <p>AloCoupon keeps the original product title and description tied to its source link, while showing available coupon codes and deals in one place.</p>
+    </section>
+    <section class="store-how-card">
+      <h2>How to apply ${brand} coupon codes</h2>
+      <div class="store-steps">
+        <article><b>1</b><h3>Choose an offer</h3><p>Select a verified deal or coupon that matches the product you want.</p></article>
+        <article><b>2</b><h3>Open the original link</h3><p>Click Get Deal or Get Code to continue to the original product page.</p></article>
+        <article><b>3</b><h3>Apply and verify</h3><p>Enter the copied code at checkout and confirm the final price before ordering.</p></article>
+      </div>
+    </section>
+      </section>
+    </div>
     <p class="brand-trust-note"><strong>✓ Verified</strong> · Affiliate links may earn AloCoupon a commission at no extra cost to you.</p>
   </main>
   <script>
@@ -5914,7 +6049,7 @@ function storePage(group) {
         const query = String(search.value || '').trim().toLowerCase();
         let visible = 0;
         cards.forEach((card) => {
-          const matchesType = activeFilter === 'all' || card.dataset.offerType === activeFilter;
+          const matchesType = activeFilter === 'all' || activeFilter === 'verified' || card.dataset.offerType === activeFilter;
           const matchesSearch = !query || String(card.dataset.search || '').includes(query);
           card.hidden = !(matchesType && matchesSearch);
           if (!card.hidden) visible += 1;
@@ -5953,10 +6088,8 @@ async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
   const extractionJobs = new Map();
   if (autoExtract) {
     items.forEach((item) => {
-      if ((item.logo && item.productImage) || !item.link) return;
-      let host = "";
-      try { host = new URL(item.link).hostname.toLowerCase(); } catch {}
-      const key = `${String(item.brand || "").trim().toLowerCase()}|${host}`;
+      if ((item.logo && item.productImage && item.sourceTitle && item.sourceDescription) || !item.link) return;
+      const key = String(item.link).trim();
       if (!extractionJobs.has(key)) extractionJobs.set(key, item.link);
     });
     const jobs = Array.from(extractionJobs.entries()).slice(0, 40);
@@ -5973,12 +6106,15 @@ async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
     }
     await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
     items.forEach((item) => {
-      let host = "";
-      try { host = new URL(item.link).hostname.toLowerCase(); } catch {}
-      const assets = extractionCache.get(`${String(item.brand || "").trim().toLowerCase()}|${host}`);
+      const assets = extractionCache.get(String(item.link || "").trim());
       if (assets) {
         item.logo ||= assets.logo;
         item.productImage ||= assets.productImage;
+        item.sourceTitle ||= assets.sourceTitle;
+        item.sourceDescription ||= assets.sourceDescription;
+        item.sourcePrice ||= assets.sourcePrice;
+        item.sourceCurrency ||= assets.sourceCurrency;
+        item.sourceUrl ||= assets.sourceUrl;
         item.assetSourceUrl = assets.sourceUrl || "";
         item.assetWarning = assets.error || "";
       }
@@ -6233,6 +6369,11 @@ const server = http.createServer(async (req, res) => {
           const assets = await extractStoreAssets(offer.link);
           offer.logo = assets.logo || offer.logo;
           offer.productImage = assets.productImage || offer.productImage;
+          offer.sourceTitle = assets.sourceTitle || offer.sourceTitle || "";
+          offer.sourceDescription = assets.sourceDescription || offer.sourceDescription || "";
+          offer.sourcePrice = assets.sourcePrice || offer.sourcePrice || "";
+          offer.sourceCurrency = assets.sourceCurrency || offer.sourceCurrency || "";
+          offer.sourceUrl = assets.sourceUrl || offer.sourceUrl || "";
           refreshed += 1;
         } catch (error) {
           failures.push({ id: offer.id, title: offer.title, error: error.message });

@@ -4174,7 +4174,7 @@ function loginPage(error = "") {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AloCoupon Admin Login</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20260719-admin2" />
 </head>
 <body>
   <main class="section admin-section" style="display:block; min-height:100vh;">
@@ -4209,7 +4209,7 @@ function adminPage(adminEmail = "") {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AloCoupon Secure Admin</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20260719-admin2" />
 </head>
 <body class="admin-mode">
   <div class="admin-cms-shell">
@@ -4263,11 +4263,11 @@ function adminPage(adminEmail = "") {
           <section class="cms-data-architecture">
             <div class="cms-data-architecture-head"><div><span class="cms-kicker">CẤU TRÚC DỮ LIỆU CMS</span><h2>Quản trị theo từng thực thể</h2><p>Cấu trúc được ánh xạ theo hệ thống mẫu: Category, Store, Offer, Deal, Post, Page, Widget, Menu, Member và Settings.</p></div><button class="cms-btn cms-btn-dark" data-admin-target="bulk-offer-import" type="button">Nhập dữ liệu</button></div>
             <div class="cms-entity-flow">
-              <button type="button" data-admin-target="categories"><span>Category</span><strong id="entity-category-count">0</strong><small>Phân loại nội dung</small></button>
-              <i>→</i>
-              <button type="button" data-admin-target="store-list"><span>Store</span><strong id="entity-store-count">0</strong><small>Thương hiệu / cửa hàng</small></button>
-              <i>→</i>
-              <div class="cms-entity-split"><button type="button" data-admin-target="offer-list"><span>Offer</span><strong id="entity-offer-count">0</strong><small>Coupon có mã</small></button><button type="button" data-admin-target="deal-list"><span>Deal</span><strong id="entity-deal-count">0</strong><small>Khuyến mãi không mã</small></button></div>
+              <button class="cms-entity-card entity-category" type="button" data-admin-target="categories"><span><i>▦</i> Category</span><strong id="entity-category-count">0</strong><small>Phân loại nội dung</small></button>
+              <i class="cms-flow-arrow">→</i>
+              <button class="cms-entity-card entity-store" type="button" data-admin-target="store-list"><span><i>◆</i> Store</span><strong id="entity-store-count">0</strong><small>Thương hiệu / cửa hàng</small></button>
+              <i class="cms-flow-arrow">→</i>
+              <div class="cms-entity-split"><button class="cms-entity-card entity-offer" type="button" data-admin-target="offer-list"><span><i>％</i> Offer</span><strong id="entity-offer-count">0</strong><small>Coupon có mã</small></button><button class="cms-entity-card entity-deal" type="button" data-admin-target="deal-list"><span><i>↘</i> Deal</span><strong id="entity-deal-count">0</strong><small>Khuyến mãi không mã</small></button></div>
             </div>
             <div class="cms-entity-secondary"><button type="button" data-admin-target="news"><b>Post</b><span>Nội dung từ API</span></button><button type="button" data-admin-target="content"><b>Page</b><span>Trang tĩnh</span></button><button type="button" data-admin-target="widgets"><b>Widget</b><span>Khối hiển thị</span></button><button type="button" data-admin-target="menu"><b>Menu</b><span>Điều hướng</span></button><button type="button" data-admin-target="subscribers"><b>Member</b><span>Subscriber</span></button><button type="button" data-admin-target="settings-general"><b>Settings</b><span>Cấu hình site</span></button></div>
           </section>

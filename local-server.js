@@ -4073,14 +4073,22 @@ function getStoreCategoryProfile(group) {
 }
 
 function getStoreOfferDescription(offer, brand) {
-  const source = String(offer.sourceDescription || offer.review || offer.title || "").replace(/\s+/g, " ").trim();
+  const couponCode = isUsableCouponCode(offer.code) ? String(offer.code).trim() : '';
+  let source = String(offer.sourceDescription || offer.review || offer.title || "").replace(/\s+/g, " ").trim();
+  if (couponCode) {
+    const escapedCode = couponCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    source = source.replace(new RegExp(`\\b(?:coupon\\s+)?code\\s*[:#-]?\\s*${escapedCode}(?=$|[^a-z0-9])`, 'gi'), 'the coupon');
+    if (couponCode.length >= 4 && /[a-z]/i.test(couponCode)) {
+      source = source.replace(new RegExp(`(^|[^a-z0-9])${escapedCode}(?=$|[^a-z0-9])`, 'gi'), '$1the coupon');
+    }
+    source = source.replace(/\bthe coupon\s+the coupon\b/gi, 'the coupon').replace(/\s+/g, ' ').trim();
+  }
   const discount = String(offer.discount || "a current promotion").trim();
-  const code = isUsableCouponCode(offer.code) ? String(offer.code).trim() : "";
   const category = String(offer.category || "").trim();
   const expiry = getValidOfferExpiry(offer);
   const details = [
     source,
-    code ? `Use code ${code} at checkout for the listed ${discount} promotion.` : `No coupon code is listed; open the deal to check how the ${discount} promotion is applied.`,
+    couponCode ? `Apply the coupon at checkout for the listed ${discount} promotion.` : `No coupon code is listed; open the deal to check how the ${discount} promotion is applied.`,
     category && !/^other$/i.test(category) ? `This offer is filed under ${category}.` : "",
     expiry ? `The supplied expiration date is ${new Date(expiry).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.` : `The source record does not provide a confirmed expiration date, so check the terms on ${brand}'s website before ordering.`,
   ].filter(Boolean);

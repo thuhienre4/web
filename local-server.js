@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const dns = require("dns").promises;
 const net = require("net");
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 
 const root = __dirname;
 const host = process.env.HOST || "0.0.0.0";
@@ -33,6 +33,38 @@ const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const newsletterSecret = String(process.env.NEWSLETTER_SECRET || adminPassword);
 const newsletterRateLimits = new Map();
+const storeRatingSyncScript = path.join(root, "scripts", "sync-store-ratings.js");
+let storeRatingSyncProcess = null;
+let storeRatingSyncState = { status: "idle", trigger: "", startedAt: "", finishedAt: "", exitCode: null, summary: "", error: "" };
+
+function startStoreRatingSync(trigger = "manual") {
+  if (storeRatingSyncProcess) return false;
+  const startedAt = new Date().toISOString();
+  storeRatingSyncState = { status: "running", trigger, startedAt, finishedAt: "", exitCode: null, summary: "", error: "" };
+  const child = spawn(process.execPath, [storeRatingSyncScript], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  storeRatingSyncProcess = child;
+  let output = "";
+  let errors = "";
+  child.stdout.on("data", (chunk) => { output = (output + chunk.toString()).slice(-40_000); });
+  child.stderr.on("data", (chunk) => { errors = (errors + chunk.toString()).slice(-20_000); });
+  child.on("error", (error) => {
+    storeRatingSyncState = { ...storeRatingSyncState, status: "failed", finishedAt: new Date().toISOString(), exitCode: -1, error: error.message };
+    storeRatingSyncProcess = null;
+  });
+  child.on("close", (code) => {
+    const summary = output.match(/Synced \d+ stores; \d+ publish a valid Store AggregateRating\./)?.[0] || output.trim().split(/\r?\n/).filter(Boolean).at(-1) || "Sync completed.";
+    storeRatingSyncState = {
+      ...storeRatingSyncState,
+      status: code === 0 ? "completed" : "failed",
+      finishedAt: new Date().toISOString(),
+      exitCode: code,
+      summary,
+      error: code === 0 ? "" : (errors.trim().split(/\r?\n/).filter(Boolean).at(-1) || `Sync exited with code ${code}`),
+    };
+    storeRatingSyncProcess = null;
+  });
+  return true;
+}
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -3080,6 +3112,11 @@ function normalizeStore(input, existing = null) {
     sourceUrl,
     sourceTitle: String(input.sourceTitle || '').trim().slice(0, 240),
     productImage: sanitizeOfferImage(input.productImage || '', 'Product image', 1_500 * 1024),
+    ratingValue: Number(input.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue))) : 0,
+    ratingCount: Number(input.ratingCount) > 0 ? Math.floor(Number(input.ratingCount)) : 0,
+    ratingSource: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingSource || 'store-jsonld').trim().slice(0, 80) : '',
+    ratingSourceUrl: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingSourceUrl || sourceUrl).trim().slice(0, 2000) : '',
+    ratingUpdatedAt: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingUpdatedAt || existing?.ratingUpdatedAt || now).trim().slice(0, 80) : '',
     order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
     createdAt: existing?.createdAt || input.createdAt || now,
     updatedAt: existing === input ? (existing.updatedAt || existing.createdAt || now) : now,
@@ -3572,6 +3609,36 @@ function findImportedProduct(value) {
   return null;
 }
 
+function findImportedStoreRating(value) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const rating = findImportedStoreRating(item);
+      if (rating) return rating;
+    }
+    return null;
+  }
+  const acceptedTypes = new Set(["organization", "corporation", "localbusiness", "store", "onlinestore", "onlinebusiness", "brand", "website"]);
+  const types = (Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]]).map((type) => String(type || "").toLowerCase());
+  const aggregate = value.aggregateRating;
+  if (types.some((type) => acceptedTypes.has(type)) && aggregate && typeof aggregate === "object") {
+    const rawValue = Number(aggregate.ratingValue);
+    const bestRating = Number(aggregate.bestRating || 5);
+    const ratingCount = Math.floor(Number(aggregate.ratingCount || aggregate.reviewCount));
+    if (rawValue > 0 && bestRating > 0 && ratingCount > 0) {
+      return {
+        ratingValue: Math.min(5, Math.max(1, (rawValue / bestRating) * 5)),
+        ratingCount,
+      };
+    }
+  }
+  for (const key of ["@graph", "mainEntity", "itemListElement", "publisher", "provider", "about"]) {
+    const rating = findImportedStoreRating(value[key]);
+    if (rating) return rating;
+  }
+  return null;
+}
+
 function discoverStoreAssets(html, pageUrl) {
   const logos = [];
   const products = [];
@@ -3579,6 +3646,8 @@ function discoverStoreAssets(html, pageUrl) {
   let sourceDescription = "";
   let sourcePrice = "";
   let sourceCurrency = "";
+  let ratingValue = 0;
+  let ratingCount = 0;
   const add = (collection, value) => {
     const resolved = resolveImportedImage(value, pageUrl);
     if (resolved && !collection.includes(resolved)) collection.push(resolved);
@@ -3611,15 +3680,22 @@ function discoverStoreAssets(html, pageUrl) {
   }
   for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
-      const product = findImportedProduct(JSON.parse(decodeImportedHtml(match[1]).trim()));
-      if (!product) continue;
-      sourceTitle ||= cleanImportedText(product.name, 240);
-      sourceDescription ||= cleanImportedText(product.description);
-      const productImages = Array.isArray(product.image) ? product.image : [product.image];
-      productImages.forEach((image) => add(products, typeof image === "object" ? image?.url : image));
-      const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
-      sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
-      sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+      const structuredData = JSON.parse(decodeImportedHtml(match[1]).trim());
+      const storeRating = findImportedStoreRating(structuredData);
+      if (storeRating && !ratingValue) {
+        ratingValue = storeRating.ratingValue;
+        ratingCount = storeRating.ratingCount;
+      }
+      const product = findImportedProduct(structuredData);
+      if (product) {
+        sourceTitle ||= cleanImportedText(product.name, 240);
+        sourceDescription ||= cleanImportedText(product.description);
+        const productImages = Array.isArray(product.image) ? product.image : [product.image];
+        productImages.forEach((image) => add(products, typeof image === "object" ? image?.url : image));
+        const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
+        sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
+        sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+      }
     } catch {}
   }
   if (!sourceTitle) sourceTitle = cleanImportedText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1], 240);
@@ -3630,6 +3706,8 @@ function discoverStoreAssets(html, pageUrl) {
     sourceDescription,
     sourcePrice,
     sourceCurrency,
+    ratingValue,
+    ratingCount,
   };
 }
 
@@ -4072,17 +4150,52 @@ function getStoreCategoryProfile(group) {
   return inferredCategories.find(([, pattern]) => pattern.test(corpus))?.[0] || "Online Retail";
 }
 
+function getStoreMerchandiseDescription(group, storeRecord = {}) {
+  const extractedDescription = String(storeRecord.description || storeRecord.aboutStore || "").replace(/\s+/g, " ").trim();
+  if (extractedDescription) return extractedDescription;
+
+  const storedCategory = String(storeRecord.category || "").trim();
+  const category = storedCategory && !/^other$/i.test(storedCategory) ? storedCategory : getStoreCategoryProfile(group);
+  const categoryProducts = {
+    "Beauty & Personal Care": "hair care, skincare, cosmetics, fragrances, grooming products, and salon essentials",
+    "Fashion & Accessories": "clothing, footwear, bags, jewelry, and fashion accessories",
+    "Electronics & Technology": "electronics, displays, smart devices, accessories, and other technology products",
+    "Health & Wellness": "health, fitness, nutrition, supplements, and personal wellness products",
+    "Home & Garden": "home, kitchen, garden, furniture, decor, and everyday household products",
+    "Pets": "pet food, care products, accessories, habitats, and other supplies for pets",
+    "Collectibles & General Merchandise": "collectibles, gifts, accessories, and general merchandise",
+    "Software & Online Services": "software, subscriptions, digital tools, and online services",
+    "Online Retail": "products and accessories available through its online catalog",
+  };
+  const productNames = [...new Set(group.items
+    .map((offer) => hideCouponValue(offer.sourceTitle || "", offer))
+    .map((value) => value.replace(/\s*[|–—-]\s*[^|–—-]+$/, "").trim())
+    .filter((value) => value && !/\b(?:coupon|promo|discount|deal|sale|free shipping|storewide)\b/i.test(value)))]
+    .slice(0, 4);
+  const merchandise = categoryProducts[category] || categoryProducts["Online Retail"];
+  const catalogDetails = productNames.length ? ` Products found in the current store catalog include ${productNames.join(", ")}.` : "";
+  return `${group.brand} is an online ${category.toLowerCase()} store offering ${merchandise}.${catalogDetails}`;
+}
+
+function hideCouponValue(value, offer, replacement = "Coupon Code") {
+  const couponCode = isUsableCouponCode(offer?.code) ? String(offer.code).trim() : "";
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!couponCode || !text) return text;
+
+  const escapedCode = couponCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  text = text.replace(new RegExp(`\\b(?:coupon\\s+)?code\\s*[:#-]?\\s*${escapedCode}(?=$|[^a-z0-9])`, "gi"), replacement);
+  if (couponCode.length >= 4 && /[a-z]/i.test(couponCode)) {
+    text = text.replace(new RegExp(`(^|[^a-z0-9])${escapedCode}(?=$|[^a-z0-9])`, "gi"), `$1${replacement}`);
+  }
+  return text
+    .replace(new RegExp(`\\b${replacement.replace(/\s+/g, "\\s+")}\\s+${replacement.replace(/\s+/g, "\\s+")}\\b`, "gi"), replacement)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function getStoreOfferDescription(offer, brand) {
   const couponCode = isUsableCouponCode(offer.code) ? String(offer.code).trim() : '';
-  let source = String(offer.sourceDescription || offer.review || offer.title || "").replace(/\s+/g, " ").trim();
-  if (couponCode) {
-    const escapedCode = couponCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    source = source.replace(new RegExp(`\\b(?:coupon\\s+)?code\\s*[:#-]?\\s*${escapedCode}(?=$|[^a-z0-9])`, 'gi'), 'the coupon');
-    if (couponCode.length >= 4 && /[a-z]/i.test(couponCode)) {
-      source = source.replace(new RegExp(`(^|[^a-z0-9])${escapedCode}(?=$|[^a-z0-9])`, 'gi'), '$1the coupon');
-    }
-    source = source.replace(/\bthe coupon\s+the coupon\b/gi, 'the coupon').replace(/\s+/g, ' ').trim();
-  }
+  const source = hideCouponValue(offer.sourceDescription || offer.review || offer.title, offer, "the coupon");
   const discount = String(offer.discount || "a current promotion").trim();
   const category = String(offer.category || "").trim();
   const expiry = getValidOfferExpiry(offer);
@@ -4125,12 +4238,30 @@ function getStoreFaq(group) {
 }
 
 function getStoreRating(group) {
-  const source = group.items.find((offer) => Number(offer.ratingValue) > 0 && Number(offer.ratingCount) > 0);
-  if (!source) return null;
+  const source = group.store || {};
+  const allowedSources = new Set(["store-jsonld", "yotpo-site-reviews", "judgeme-shop-reviews", "google-places"]);
+  const updatedAt = new Date(source.ratingUpdatedAt || 0).getTime();
+  const isFresh = Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt <= 45 * 24 * 60 * 60 * 1000;
+  if (!allowedSources.has(String(source.ratingSource || "")) || !isFresh || Number(source.ratingValue) <= 0 || Number(source.ratingCount) <= 0) return null;
   return {
     value: Math.min(5, Math.max(1, Number(source.ratingValue))),
     count: Math.max(1, Math.floor(Number(source.ratingCount))),
+    source: source.ratingSource,
+    sourceUrl: source.ratingSourceUrl,
   };
+}
+
+function renderStoreStars(rating, compact = false) {
+  if (!rating) return `<span class="store-rating-unavailable">No verified ratings yet</span>`;
+  const value = Math.min(5, Math.max(0, Number(rating.value) || 0));
+  const width = Math.round((value / 5) * 1000) / 10;
+  const label = `${value.toFixed(1)} out of 5 from ${rating.count.toLocaleString("en-US")} votes`;
+  const attribution = rating.source === "google-places" ? `<a class="google-rating-attribution" href="${escapeHtml(rating.sourceUrl || "https://maps.google.com/")}" target="_blank" rel="noopener">Google Maps</a>` : "";
+  return `<div class="store-star-widget${compact ? " is-compact" : ""}" aria-label="${escapeHtml(label)}">
+    <div class="store-star-meter" aria-hidden="true"><span>★★★★★</span><span class="store-star-fill" style="width:${width}%">★★★★★</span></div>
+    <div class="store-star-meta"><strong>${value.toFixed(1)}</strong><span>/ 5</span><i>/</i><span>${rating.count.toLocaleString("en-US")} votes</span></div>
+    ${attribution}
+  </div>`;
 }
 
 function getRelatedStoreGroups(group, limit = 6) {
@@ -4193,7 +4324,7 @@ function storeStructuredData(group) {
         "url": storeUrl,
         "about": category,
         "keywords": `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${category} discounts`,
-        ...(rating ? {
+        ...(rating && rating.source !== "google-places" ? {
           "aggregateRating": {
             "@type": "AggregateRating",
             "ratingValue": rating.value,
@@ -4501,6 +4632,11 @@ function adminPage(adminEmail = "") {
           <form class="cms-editor-form cms-store-editor" id="store-editor-form">
             <input name="id" type="hidden" />
             <input name="sourceTitle" type="hidden" />
+            <input name="ratingValue" type="hidden" />
+            <input name="ratingCount" type="hidden" />
+            <input name="ratingSource" type="hidden" />
+            <input name="ratingSourceUrl" type="hidden" />
+            <input name="ratingUpdatedAt" type="hidden" />
             <input name="productImage" type="hidden" />
             <div class="cms-field-row"><label for="store-name">Tên store</label><input id="store-name" name="name" type="text" placeholder="Tên store" required /></div>
             <div class="cms-field-row"><label for="store-slug">Slug</label><input id="store-slug" name="slug" type="text" placeholder="store-slug" required /></div>
@@ -5337,6 +5473,44 @@ function adminPage(adminEmail = "") {
       showToast("Đã export danh mục.");
     });
 
+    const refreshStoreListButton = document.querySelector("#refresh-store-list-btn");
+    const syncStoreRatingsButton = document.createElement("button");
+    syncStoreRatingsButton.className = "cms-btn cms-btn-primary";
+    syncStoreRatingsButton.id = "sync-store-ratings-btn";
+    syncStoreRatingsButton.type = "button";
+    syncStoreRatingsButton.textContent = "★ Sync rating Store";
+    refreshStoreListButton.before(syncStoreRatingsButton);
+    let storeRatingPollTimer = null;
+
+    async function refreshStoreRatingSyncStatus(showResult = false) {
+      const res = await fetch("/api/admin/stores/sync-ratings/status");
+      const state = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const running = state.status === "running";
+      syncStoreRatingsButton.disabled = running;
+      syncStoreRatingsButton.textContent = running ? "Đang đồng bộ rating..." : "★ Sync rating Store";
+      if (running && !storeRatingPollTimer) storeRatingPollTimer = setInterval(() => refreshStoreRatingSyncStatus(true), 4000);
+      if (!running && storeRatingPollTimer) {
+        clearInterval(storeRatingPollTimer);
+        storeRatingPollTimer = null;
+        await loadOffers();
+        if (showResult) showToast(state.status === "completed" ? (state.summary || "Đã đồng bộ rating Store.") : (state.error || "Đồng bộ rating thất bại."));
+      }
+    }
+
+    syncStoreRatingsButton.addEventListener("click", async () => {
+      syncStoreRatingsButton.disabled = true;
+      const res = await fetch("/api/admin/stores/sync-ratings", { method: "POST" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 409) {
+        syncStoreRatingsButton.disabled = false;
+        return showToast(result.error || "Không thể bắt đầu đồng bộ rating.");
+      }
+      showToast(result.message || "Đã bắt đầu đồng bộ rating Store.");
+      refreshStoreRatingSyncStatus(true);
+    });
+    refreshStoreRatingSyncStatus(false);
+
     document.querySelectorAll(".coupon-search-btn").forEach((button) => button.addEventListener("click", () => {
       if (button.dataset.list === "store") renderStoreManager();
       if (button.dataset.list === "offer") renderOfferManager();
@@ -5428,6 +5602,11 @@ function adminPage(adminEmail = "") {
       storeEditorForm.elements.event.value = item.event || 'Uncategorized';
       storeEditorForm.elements.sourceUrl.value = item.sourceUrl || '';
       storeEditorForm.elements.sourceTitle.value = item.sourceTitle || '';
+      storeEditorForm.elements.ratingValue.value = Number(item.ratingValue || 0);
+      storeEditorForm.elements.ratingCount.value = Number(item.ratingCount || 0);
+      storeEditorForm.elements.ratingSource.value = item.ratingSource || '';
+      storeEditorForm.elements.ratingSourceUrl.value = item.ratingSourceUrl || '';
+      storeEditorForm.elements.ratingUpdatedAt.value = item.ratingUpdatedAt || '';
       storeEditorForm.elements.productImage.value = item.productImage || '';
       storeEditorForm.elements.image.value = item.image || '';
       storeEditorForm.elements.approved.checked = item.approved !== false;
@@ -5495,6 +5674,11 @@ function adminPage(adminEmail = "") {
         storeEditorForm.elements.image.value = assets.logo || storeEditorForm.elements.image.value;
         storeEditorForm.elements.productImage.value = assets.productImage || '';
         storeEditorForm.elements.sourceTitle.value = assets.sourceTitle || '';
+        storeEditorForm.elements.ratingValue.value = Number(assets.ratingValue || 0);
+        storeEditorForm.elements.ratingCount.value = Number(assets.ratingCount || 0);
+        storeEditorForm.elements.ratingSource.value = assets.ratingValue && assets.ratingCount ? 'store-jsonld' : '';
+        storeEditorForm.elements.ratingSourceUrl.value = assets.ratingValue && assets.ratingCount ? (assets.sourceUrl || sourceUrl) : '';
+        storeEditorForm.elements.ratingUpdatedAt.value = assets.ratingValue && assets.ratingCount ? new Date().toISOString() : '';
         if (!storeEditorForm.elements.name.value && assets.sourceTitle) storeEditorForm.elements.name.value = assets.sourceTitle.split(/[|–—-]/)[0].trim();
         if (!storeEditorForm.elements.slug.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
         if (!storeEditorForm.elements.description.value) storeEditorForm.elements.description.value = assets.sourceDescription || '';
@@ -6358,7 +6542,8 @@ function storePage(group) {
   const storePath = `/store/${encodeURIComponent(storeRecord.slug || getOfferStoreSlug(group.brand))}`;
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
   const categoryProfile = storeRecord.category || getStoreCategoryProfile(group);
-  const description = escapeHtml(storeRecord.metaDescription || storeRecord.description || `Compare ${group.items.length} verified ${group.brand} coupon codes and ${categoryProfile.toLowerCase()} deals. Review code requirements, product scope, source details, and expiration dates when supplied.`);
+  const merchandiseDescription = getStoreMerchandiseDescription(group, storeRecord);
+  const description = escapeHtml(storeRecord.metaDescription || merchandiseDescription);
   const structuredData = jsonLdScript(storeStructuredData(group));
   const codeCount = visibleItems.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = visibleItems.length - codeCount;
@@ -6371,8 +6556,7 @@ function storePage(group) {
   const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
-  const sourceDescriptions = [...new Set(group.items.map((offer) => String(offer.sourceDescription || offer.review || "").trim()).filter(Boolean))];
-  const aboutCopy = escapeHtml(storeRecord.aboutStore || storeRecord.description || sourceDescriptions.slice(0, 4).join(" ") || `The current ${group.brand} records cover ${categoryProfile.toLowerCase()} promotions available through the store's original website.`);
+  const aboutCopy = escapeHtml(storeRecord.aboutStore || merchandiseDescription);
   const howToApplyCopy = escapeHtml(storeRecord.howToApply || '');
   const storeCategory = escapeHtml(categoryProfile);
   const customFaqs = String(storeRecord.faqs || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
@@ -6383,9 +6567,9 @@ function storePage(group) {
   const rating = getStoreRating(group);
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
-  const productCoverage = visibleItems.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim())}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
+  const productCoverage = visibleItems.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer))}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
   const offerRows = visibleItems.map((offer) => {
-    const sourceTitle = String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim();
+    const sourceTitle = hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer);
     const sourceSummary = getStoreOfferDescription(offer, group.brand);
     const title = escapeHtml(sourceTitle);
     const summary = escapeHtml(sourceSummary);
@@ -6398,7 +6582,7 @@ function storePage(group) {
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
     const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
     return `
-      <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount} ${code}`.toLowerCase())}">
+      <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount}`.toLowerCase())}">
         <div class="brand-offer-discount"><strong>${discount}</strong><span>${hasCode ? "COUPON" : "DEAL"}</span></div>
         <div class="brand-offer-content">
           <div class="brand-offer-meta"><span class="offer-type-dot"></span>${typeLabel}<span>•</span><span>${expiry}</span><span class="verified-label">✓ Verified</span></div>
@@ -6511,8 +6695,17 @@ function storePage(group) {
     .store-reference-sidebar .brand-logo-shell { border-radius: 2px; height: 150px; width: 100%; }
     .store-reference-sidebar .brand-identity h2 { font-size: 1.35rem; margin: 0 0 5px; overflow-wrap: anywhere; }
     .store-reference-sidebar .brand-eyebrow { justify-content: center; }
-    .brand-rating { color: #f2b600; font-size: .88rem; font-weight: 900; margin: 7px 0 0; }
-    .brand-rating span { color: #738491; font-size: .72rem; font-weight: 700; }
+    .brand-rating { margin: 9px 0 0; }
+    .store-star-widget { align-items: flex-start; display: flex; flex-direction: column; gap: 7px; }
+    .store-star-widget.is-compact { align-items: center; }
+    .store-star-meter { color: #a8afb4; display: inline-block; font-size: 1.7rem; letter-spacing: .06em; line-height: 1; position: relative; white-space: nowrap; }
+    .store-star-fill { color: #f5a000; left: 0; overflow: hidden; position: absolute; top: 0; white-space: nowrap; }
+    .store-star-meta { align-items: center; color: #7c8790; display: flex; font-size: .78rem; gap: 6px; }
+    .store-star-meta strong { color: #6c7780; font-size: inherit; }
+    .store-star-meta i { color: #b1b8bd; font-style: normal; }
+    .google-rating-attribution { color: #4285f4; font-size: .7rem; font-weight: 800; text-decoration: none; }
+    .google-rating-attribution:hover { text-decoration: underline; }
+    .store-rating-unavailable { color: #738491; font-size: .74rem; font-weight: 700; }
     .store-reference-sidebar .brand-best-box { background: transparent; padding: 0; width: 100%; }
     .store-reference-sidebar .brand-best-box a { background: #079d13; border-radius: 3px; }
     .store-stats-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; box-shadow: 0 2px 9px rgba(0,0,0,.06); padding: 18px; }
@@ -6547,10 +6740,8 @@ function storePage(group) {
     .store-faq-list details { border-top: 1px solid #e1e6e9; padding: 15px 0; }
     .store-faq-list summary { color: #183d54; cursor: pointer; font-size: .92rem; font-weight: 850; }
     .store-faq-list details p { color: #586a76; font-size: .84rem; line-height: 1.65; margin: 10px 0 0; }
-    .store-rating-score { align-items: center; display: flex; flex-wrap: wrap; gap: 11px; }
-    .store-rating-score strong { font-size: 2rem; }
-    .store-rating-score span { color: #f2b600; letter-spacing: .08em; }
-    .store-rating-score small { color: #667786; width: 100%; }
+    .store-rating-score { align-items: center; display: flex; justify-content: center; padding: 8px 0; text-align: center; }
+    .store-rating-score .store-star-meter { font-size: 2rem; }
     .store-rating-empty { background: #f7f9fa; border-left: 4px solid #94a5af; padding: 14px 17px; }
     .store-rating-empty p { margin: 6px 0 0; }
     .store-related-card > div { display: grid; gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -6588,7 +6779,7 @@ function storePage(group) {
           <p class="brand-eyebrow"><i></i> Verified store</p>
           <h2>${brand}</h2>
           <p class="brand-domain">${domain}</p>
-          <p class="brand-rating">${rating ? `★★★★★ <span>${rating.value.toFixed(1)} from ${rating.count} ratings</span>` : `<span>No customer ratings yet</span>`}</p>
+          <div class="brand-rating">${renderStoreStars(rating, true)}</div>
         </div>
         <div class="brand-best-box">
           <a href="${affiliateLink}" rel="sponsored noopener">Get Coupon Alert</a>
@@ -6604,7 +6795,7 @@ function storePage(group) {
       </aside>
       <section class="store-reference-content">
         <h1>${brand} Coupons and Promo Codes</h1>
-        <p class="brand-copy">${escapeHtml(storeRecord.description || `Compare ${visibleItems.length} verified ${group.brand} coupon codes, promo codes, and ${categoryProfile} discounts. Product names, eligibility notes, and descriptions below come from the original product link or AloCoupon's source API record.`)} Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
+        <p class="brand-copy">${escapeHtml(merchandiseDescription)} Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
@@ -6648,7 +6839,7 @@ function storePage(group) {
     <section class="store-rating-card">
       <h2>${brand} shopper rating</h2>
       ${rating
-        ? `<div class="store-rating-score"><strong>${rating.value.toFixed(1)}</strong><span>★★★★★</span><small>${rating.count} customer ratings</small></div>`
+        ? `<div class="store-rating-score">${renderStoreStars(rating, true)}</div>`
         : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>AloCoupon has no verified customer rating records for ${brand}, so no AggregateRating schema is published. This avoids showing an unsupported score in search results.</p></div>`}
     </section>
     <nav class="store-related-card" aria-label="Related coupon stores">
@@ -6940,6 +7131,19 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/admin/stores') {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
       sendJson(res, 200, readStores());
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/admin/stores/sync-ratings/status') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      sendJson(res, 200, storeRatingSyncState);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/admin/stores/sync-ratings') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      if (!startStoreRatingSync('admin')) return sendJson(res, 409, { error: 'Store rating sync is already running.', state: storeRatingSyncState });
+      sendJson(res, 202, { message: 'Store rating sync started.', state: storeRatingSyncState });
       return;
     }
 
@@ -7332,6 +7536,15 @@ server.listen(port, host, () => {
     exec(`start "" "${publicUrl}"`);
   }
 });
+
+if (process.env.DISABLE_STORE_RATING_SYNC !== "1") {
+  const firstStoreRatingSync = setTimeout(() => {
+    startStoreRatingSync("scheduled");
+    const dailyStoreRatingSync = setInterval(() => startStoreRatingSync("scheduled"), 24 * 60 * 60 * 1000);
+    dailyStoreRatingSync.unref();
+  }, 5 * 60 * 1000);
+  firstStoreRatingSync.unref();
+}
 
 server.on("error", (error) => {
   console.error("Khong the chay server.");

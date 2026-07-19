@@ -22,6 +22,7 @@ const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
 const adminCategoriesFile = path.join(dataDir, "admin-categories.json");
 const subscribersFile = path.join(dataDir, "subscribers.json");
+const storeUserRatingsFile = path.join(dataDir, "store-user-ratings.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
@@ -33,6 +34,7 @@ const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const newsletterSecret = String(process.env.NEWSLETTER_SECRET || adminPassword);
 const newsletterRateLimits = new Map();
+const storeRatingRateLimits = new Map();
 const storeRatingSyncScript = path.join(root, "scripts", "sync-store-ratings.js");
 let storeRatingSyncProcess = null;
 let storeRatingSyncState = { status: "idle", trigger: "", startedAt: "", finishedAt: "", exitCode: null, summary: "", error: "" };
@@ -2855,6 +2857,9 @@ function ensureDataFile() {
   if (!fs.existsSync(subscribersFile)) {
     fs.writeFileSync(subscribersFile, "[]");
   }
+  if (!fs.existsSync(storeUserRatingsFile)) {
+    fs.writeFileSync(storeUserRatingsFile, "[]");
+  }
 }
 
 function readSiteSettings() {
@@ -4244,12 +4249,107 @@ function getStoreRating(group) {
   };
 }
 
+function readStoreUserRatings() {
+  ensureDataFile();
+  return readJsonArrayFile(storeUserRatingsFile)
+    .filter((record) => record && slugify(record.storeSlug))
+    .map((record) => ({
+      storeSlug: slugify(record.storeSlug),
+      votes: (Array.isArray(record.votes) ? record.votes : []).filter((vote) =>
+        /^[a-f0-9]{64}$/i.test(String(vote.fingerprint || "")) && Number.isInteger(Number(vote.rating)) && Number(vote.rating) >= 1 && Number(vote.rating) <= 5
+      ).map((vote) => ({
+        fingerprint: String(vote.fingerprint),
+        rating: Number(vote.rating),
+        createdAt: String(vote.createdAt || ""),
+        updatedAt: String(vote.updatedAt || vote.createdAt || ""),
+      })),
+    }));
+}
+
+function writeStoreUserRatings(records) {
+  ensureDataFile();
+  fs.writeFileSync(storeUserRatingsFile, JSON.stringify(records, null, 2));
+}
+
+function getStoreUserRating(groupOrSlug) {
+  const storeSlug = slugify(typeof groupOrSlug === "string"
+    ? groupOrSlug
+    : groupOrSlug?.store?.slug || getOfferStoreSlug(groupOrSlug?.brand));
+  const record = readStoreUserRatings().find((item) => item.storeSlug === storeSlug);
+  if (!record?.votes.length) return null;
+  const total = record.votes.reduce((sum, vote) => sum + vote.rating, 0);
+  return {
+    value: Math.round((total / record.votes.length) * 10) / 10,
+    count: record.votes.length,
+    source: "alocoupon-shoppers",
+    updatedAt: record.votes.map((vote) => vote.updatedAt).sort().at(-1) || "",
+  };
+}
+
+function getStoreRatingRequestKey(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function enforceStoreRatingRateLimit(req) {
+  const key = getStoreRatingRequestKey(req);
+  const now = Date.now();
+  const recent = (storeRatingRateLimits.get(key) || []).filter((time) => now - time < 60 * 60 * 1000);
+  if (recent.length >= 20) throw new Error("Too many rating attempts. Please try again later.");
+  recent.push(now);
+  storeRatingRateLimits.set(key, recent);
+}
+
+function saveStoreUserRating(group, req, payload) {
+  const rating = Number(payload.rating);
+  const visitorId = String(payload.visitorId || "").trim();
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be a whole number from 1 to 5.");
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(visitorId)) throw new Error("Your browser rating ID is invalid. Please refresh and try again.");
+  if (String(payload.website || "").trim()) return { rating: getStoreUserRating(group), updated: false };
+  enforceStoreRatingRateLimit(req);
+
+  const storeSlug = slugify(group.store?.slug || getOfferStoreSlug(group.brand));
+  const requestKey = getStoreRatingRequestKey(req);
+  const userAgent = String(req.headers["user-agent"] || "").slice(0, 300);
+  const fingerprint = crypto.createHmac("sha256", newsletterSecret)
+    .update(`${storeSlug}:${visitorId}:${requestKey}:${userAgent}`)
+    .digest("hex");
+  const records = readStoreUserRatings();
+  let record = records.find((item) => item.storeSlug === storeSlug);
+  if (!record) {
+    record = { storeSlug, votes: [] };
+    records.push(record);
+  }
+  const now = new Date().toISOString();
+  const existing = record.votes.find((vote) => vote.fingerprint === fingerprint);
+  const updated = Boolean(existing);
+  if (existing) {
+    existing.rating = rating;
+    existing.updatedAt = now;
+  } else {
+    record.votes.push({ fingerprint, rating, createdAt: now, updatedAt: now });
+  }
+  writeStoreUserRatings(records);
+  return { rating: getStoreUserRating(storeSlug), updated };
+}
+
 function renderStoreStars(rating, compact = false) {
   if (!rating) return `<span class="store-rating-unavailable">No verified ratings yet</span>`;
   const value = Math.min(5, Math.max(0, Number(rating.value) || 0));
   const width = Math.round((value / 5) * 1000) / 10;
   const label = `${value.toFixed(1)} out of 5 from ${rating.count.toLocaleString("en-US")} votes`;
-  const attribution = rating.source === "google-places" ? `<a class="google-rating-attribution" href="${escapeHtml(rating.sourceUrl || "https://maps.google.com/")}" target="_blank" rel="noopener">Google Maps</a>` : "";
+  const sourceLabels = {
+    "alocoupon-shoppers": "AloCoupon shoppers",
+    "google-places": "Google Maps",
+    "yotpo-site-reviews": "Yotpo",
+    "judgeme-shop-reviews": "Judge.me",
+    "store-jsonld": "Official store",
+  };
+  const sourceLabel = sourceLabels[rating.source] || "";
+  const attribution = sourceLabel
+    ? (rating.sourceUrl && rating.source !== "alocoupon-shoppers"
+      ? `<a class="google-rating-attribution" href="${escapeHtml(rating.sourceUrl)}" target="_blank" rel="noopener nofollow">${escapeHtml(sourceLabel)}</a>`
+      : `<span class="store-rating-source">${escapeHtml(sourceLabel)}</span>`)
+    : "";
   return `<div class="store-star-widget${compact ? " is-compact" : ""}" aria-label="${escapeHtml(label)}">
     <div class="store-star-meter" aria-hidden="true"><span>★★★★★</span><span class="store-star-fill" style="width:${width}%">★★★★★</span></div>
     <div class="store-star-meta"><strong>${value.toFixed(1)}</strong><span>/ 5</span><i>/</i><span>${rating.count.toLocaleString("en-US")} votes</span></div>
@@ -4274,7 +4374,7 @@ function storeStructuredData(group) {
   const category = getStoreCategoryProfile(group);
   const description = `Compare verified ${group.brand} coupon codes and ${category.toLowerCase()} deals, with source-linked offer details, eligibility notes, and expiration information when supplied.`;
   const faqs = getStoreFaq(group);
-  const rating = getStoreRating(group);
+  const rating = getStoreUserRating(group);
 
   return {
     "@context": "https://schema.org",
@@ -4284,6 +4384,21 @@ function storeStructuredData(group) {
         "@id": `${siteUrl}/#organization`,
         "name": "AloCoupon",
         "url": getAbsoluteUrl("/"),
+      },
+      {
+        "@type": "Organization",
+        "@id": `${storeUrl}#merchant`,
+        "name": group.brand,
+        ...(group.store?.sourceUrl ? { "url": group.store.sourceUrl } : {}),
+        ...(rating ? {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": rating.value,
+            "ratingCount": rating.count,
+            "bestRating": 5,
+            "worstRating": 1,
+          },
+        } : {}),
       },
       {
         "@type": "BreadcrumbList",
@@ -4315,17 +4430,8 @@ function storeStructuredData(group) {
         "name": title,
         "description": description,
         "url": storeUrl,
-        "about": category,
+        "about": { "@id": `${storeUrl}#merchant` },
         "keywords": `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${category} discounts`,
-        ...(rating && rating.source !== "google-places" ? {
-          "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": rating.value,
-            "ratingCount": rating.count,
-            "bestRating": 5,
-            "worstRating": 1,
-          },
-        } : {}),
         "isPartOf": {
           "@id": `${siteUrl}/#website`,
         },
@@ -6561,7 +6667,10 @@ function storePage(group) {
     return lines.length > 1 ? { question: lines[0], answer: lines.slice(1).join(' ') } : null;
   }).filter(Boolean);
   const faqs = customFaqs.length ? customFaqs : getStoreFaq(group);
-  const rating = getStoreRating(group);
+  const shopperRating = getStoreUserRating(group);
+  const externalRating = getStoreRating(group);
+  const rating = shopperRating || externalRating;
+  const ratingStoreSlug = escapeHtml(storeRecord.slug || getOfferStoreSlug(group.brand));
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
   const verifiedMerchandiseItems = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).slice(0, 8);
@@ -6703,6 +6812,7 @@ function storePage(group) {
     .store-star-meta i { color: #b1b8bd; font-style: normal; }
     .google-rating-attribution { color: #4285f4; font-size: .7rem; font-weight: 800; text-decoration: none; }
     .google-rating-attribution:hover { text-decoration: underline; }
+    .store-rating-source { color: #738491; font-size: .7rem; font-weight: 800; }
     .store-rating-unavailable { color: #738491; font-size: .74rem; font-weight: 700; }
     .store-reference-sidebar .brand-best-box { background: transparent; padding: 0; width: 100%; }
     .store-reference-sidebar .brand-best-box a { background: #079d13; border-radius: 3px; }
@@ -6745,6 +6855,17 @@ function storePage(group) {
     .store-rating-score .store-star-meter { font-size: 2rem; }
     .store-rating-empty { background: #f7f9fa; border-left: 4px solid #94a5af; padding: 14px 17px; }
     .store-rating-empty p { margin: 6px 0 0; }
+    .store-rating-form { border-top: 1px solid #e1e6e9; margin-top: 20px; padding-top: 20px; text-align: center; }
+    .store-rating-form fieldset { border: 0; margin: 0; padding: 0; }
+    .store-rating-form legend { color: #183d54; font-size: .92rem; font-weight: 850; margin: 0 auto 10px; }
+    .store-rating-buttons { display: inline-flex; flex-direction: row-reverse; justify-content: center; }
+    .store-rating-buttons button { background: transparent; border: 0; color: #b8bec3; cursor: pointer; font-size: 2.3rem; line-height: 1; padding: 3px; transition: color .15s ease, transform .15s ease; }
+    .store-rating-buttons button:hover, .store-rating-buttons button:hover ~ button, .store-rating-buttons button:focus-visible, .store-rating-buttons button:focus-visible ~ button, .store-rating-buttons button.is-selected, .store-rating-buttons button.is-selected ~ button { color: #f5a000; transform: translateY(-1px); }
+    .store-rating-status { color: #5c6d78; font-size: .8rem; min-height: 1.2em; }
+    .store-rating-status.is-success { color: #07825a; font-weight: 800; }
+    .store-rating-status.is-error { color: #b42318; font-weight: 800; }
+    .store-rating-policy { color: #75858f; font-size: .74rem; line-height: 1.5; margin: 8px auto 0; max-width: 620px; }
+    .store-rating-honeypot { height: 1px; left: -10000px; overflow: hidden; position: absolute; width: 1px; }
     .store-related-card > div { display: grid; gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .store-related-card > div a { align-items: center; border: 1px solid #e1e6e9; color: #174d6b; display: flex; font-size: .84rem; font-weight: 800; justify-content: space-between; padding: 12px; text-decoration: none; }
     .store-related-card > div span { color: #738491; font-size: .7rem; font-weight: 700; }
@@ -6939,11 +7060,24 @@ function storePage(group) {
       <p>These answers reflect the ${group.items.length} offers and expiration fields currently stored for ${brand}.</p>
       <div class="store-faq-list">${faqRows}</div>
     </section>
-    <section class="store-rating-card" id="store-rating">
+    <section class="store-rating-card" id="store-rating" data-store-slug="${ratingStoreSlug}">
       <h2>${brand} shopper rating</h2>
-      ${rating
-        ? `<div class="store-rating-score">${renderStoreStars(rating, true)}</div>`
-        : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>AloCoupon has no verified customer rating records for ${brand}, so no AggregateRating schema is published. This avoids showing an unsupported score in search results.</p></div>`}
+      <div class="store-rating-summary">
+        ${shopperRating
+          ? `<div class="store-rating-score">${renderStoreStars(shopperRating, true)}</div>`
+          : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>Be the first AloCoupon shopper to rate ${brand}. No AggregateRating schema is published until a real rating is submitted.</p></div>`}
+      </div>
+      <form class="store-rating-form">
+        <fieldset>
+          <legend>How useful was your shopping experience with ${brand}?</legend>
+          <div class="store-rating-buttons" role="radiogroup" aria-label="Rate ${brand} from 1 to 5 stars">
+            ${[5, 4, 3, 2, 1].map((value) => `<button type="button" data-rating="${value}" role="radio" aria-checked="false" aria-label="${value} star${value === 1 ? "" : "s"}">★</button>`).join("")}
+          </div>
+          <label class="store-rating-honeypot">Leave this field empty<input name="website" tabindex="-1" autocomplete="off" /></label>
+        </fieldset>
+        <p class="store-rating-status" role="status" aria-live="polite">Choose a star to submit or update your rating.</p>
+        <p class="store-rating-policy">Ratings are collected directly on AloCoupon. One rating is kept per browser and network fingerprint; no imported Google, Yotpo, Judge.me, or merchant-site score is used in AloCoupon's AggregateRating.</p>
+      </form>
     </section>
     <nav class="store-related-card" aria-label="Related coupon stores">
       <h2>Explore related coupon stores</h2>
@@ -6981,6 +7115,53 @@ function storePage(group) {
         const code = link.dataset.code;
         if (code && navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
       }));
+      const ratingCard = document.querySelector('.store-rating-card[data-store-slug]');
+      if (ratingCard) {
+        const ratingButtons = [...ratingCard.querySelectorAll('[data-rating]')];
+        const ratingStatus = ratingCard.querySelector('.store-rating-status');
+        const ratingSummary = ratingCard.querySelector('.store-rating-summary');
+        const getVisitorId = () => {
+          try {
+            let id = localStorage.getItem('alocoupon_rating_visitor_id');
+            if (!id) {
+              id = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'visitor_' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+              localStorage.setItem('alocoupon_rating_visitor_id', id);
+            }
+            return id;
+          } catch {
+            return 'session_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+          }
+        };
+        ratingButtons.forEach((button) => button.addEventListener('click', async () => {
+          const selected = Number(button.dataset.rating);
+          ratingButtons.forEach((item) => {
+            const active = item === button;
+            item.classList.toggle('is-selected', active);
+            item.setAttribute('aria-checked', active ? 'true' : 'false');
+            item.disabled = true;
+          });
+          ratingStatus.className = 'store-rating-status';
+          ratingStatus.textContent = 'Saving your rating...';
+          try {
+            const response = await fetch('/api/stores/' + encodeURIComponent(ratingCard.dataset.storeSlug) + '/rating', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rating: selected, visitorId: getVisitorId(), website: ratingCard.querySelector('[name="website"]').value }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not save your rating.');
+            const width = Math.round((Number(result.rating.value) / 5) * 1000) / 10;
+            ratingSummary.innerHTML = '<div class="store-rating-score"><div class="store-star-widget is-compact" aria-label="' + Number(result.rating.value).toFixed(1) + ' out of 5 from ' + Number(result.rating.count).toLocaleString('en-US') + ' votes"><div class="store-star-meter" aria-hidden="true"><span>★★★★★</span><span class="store-star-fill" style="width:' + width + '%">★★★★★</span></div><div class="store-star-meta"><strong>' + Number(result.rating.value).toFixed(1) + '</strong><span>/ 5</span><i>/</i><span>' + Number(result.rating.count).toLocaleString('en-US') + ' votes</span></div><span class="store-rating-source">AloCoupon shoppers</span></div></div>';
+            ratingStatus.className = 'store-rating-status is-success';
+            ratingStatus.textContent = result.updated ? 'Your rating was updated.' : 'Thank you. Your rating was recorded.';
+          } catch (error) {
+            ratingStatus.className = 'store-rating-status is-error';
+            ratingStatus.textContent = error.message || 'Could not save your rating.';
+          } finally {
+            ratingButtons.forEach((item) => { item.disabled = false; });
+          }
+        }));
+      }
     })();
   </script>
 </body>
@@ -7083,6 +7264,17 @@ const server = http.createServer(async (req, res) => {
       }
 
       send(res, 200, storePage(group), "text/html; charset=utf-8");
+      return;
+    }
+
+    const publicStoreRatingMatch = url.pathname.match(/^\/api\/stores\/([^/]+)\/rating$/);
+    if (publicStoreRatingMatch && (req.method === "GET" || req.method === "POST")) {
+      const group = findStoreGroupBySlug(decodeURIComponent(publicStoreRatingMatch[1]));
+      if (!group) return sendJson(res, 404, { error: "Store not found." });
+      if (req.method === "GET") return sendJson(res, 200, { rating: getStoreUserRating(group) });
+      const payload = JSON.parse(await readBody(req, 10_000));
+      const result = saveStoreUserRating(group, req, payload);
+      sendJson(res, 200, result);
       return;
     }
 

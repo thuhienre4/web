@@ -26,9 +26,11 @@ const acceptedTypes = new Set([
   "brand",
   "website",
 ]);
+const profileTypes = new Set([...acceptedTypes, "webpage"]);
 
 function decodeHtml(value) {
   return String(value || "")
+    .replace(/&amp;nbsp;|&nbsp;|&#160;/gi, " ")
     .replace(/&quot;/gi, '"')
     .replace(/&apos;|&#39;/gi, "'")
     .replace(/&amp;/gi, "&")
@@ -36,6 +38,17 @@ function decodeHtml(value) {
     .replace(/&gt;/gi, ">")
     .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
     .replace(/&#x([a-f0-9]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function cleanOfficialUrl(value) {
+  try {
+    const url = new URL(value);
+    [...url.searchParams.keys()].forEach((key) => {
+      if (/^(?:utm_|rfsn$|ref$|referral|affiliate|aff_|fbclid$|gclid$)/i.test(key)) url.searchParams.delete(key);
+    });
+    url.hash = "";
+    return url.href;
+  } catch { return String(value || ""); }
 }
 
 function numberValue(value) {
@@ -79,12 +92,154 @@ function findStoreRating(value) {
   return null;
 }
 
-function extractRating(html) {
+function cleanProfileText(value, maxLength = 1200) {
+  return decodeHtml(String(value || ""))
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function jsonLdDocuments(html) {
+  const documents = [];
   for (const match of String(html || "").matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try { documents.push(JSON.parse(decodeHtml(match[1]).trim())); } catch {}
+  }
+  return documents;
+}
+
+function walkStructuredData(value, visitor) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => walkStructuredData(item, visitor));
+    return;
+  }
+  visitor(value);
+  Object.values(value).forEach((item) => walkStructuredData(item, visitor));
+}
+
+function metaContent(html, attributeName) {
+  for (const match of String(html || "").matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0];
+    const property = tag.match(/\b(?:name|property)\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
+    if (property !== attributeName.toLowerCase()) continue;
+    return cleanProfileText(tag.match(/\bcontent\s*=\s*["']([\s\S]*?)["']/i)?.[1]);
+  }
+  return "";
+}
+
+function isUsefulOfficialDescription(value) {
+  const text = cleanProfileText(value);
+  if (text.length < 35) return false;
+  if (/^(?:home|welcome|official site|shop now|coming soon)[.!\s-]*$/i.test(text)) return false;
+  if (/\b(?:coupon codes?|promo codes?)\b.*\b(?:verified|updated|save)\b/i.test(text)) return false;
+  return true;
+}
+
+function extractStoreProfile(html) {
+  const descriptions = [];
+  const products = [];
+  const categories = [];
+  const addUnique = (collection, value, maxLength = 180) => {
+    const text = cleanProfileText(value, maxLength);
+    if (text && !collection.some((item) => item.toLowerCase() === text.toLowerCase())) collection.push(text);
+  };
+
+  jsonLdDocuments(html).forEach((document) => {
+    walkStructuredData(document, (item) => {
+      const types = (Array.isArray(item["@type"]) ? item["@type"] : [item["@type"]]).map((type) => String(type || "").toLowerCase());
+      if (types.some((type) => profileTypes.has(type)) && isUsefulOfficialDescription(item.description)) {
+        addUnique(descriptions, item.description, 1200);
+      }
+      if (types.includes("product")) {
+        addUnique(products, item.name, 180);
+        const productCategories = Array.isArray(item.category) ? item.category : [item.category];
+        productCategories.forEach((category) => addUnique(categories, category, 120));
+      }
+    });
+  });
+
+  [metaContent(html, "og:description"), metaContent(html, "twitter:description"), metaContent(html, "description")]
+    .filter(isUsefulOfficialDescription)
+    .forEach((description) => addUnique(descriptions, description, 1200));
+
+  const title = metaContent(html, "og:title") || cleanProfileText(String(html || "").match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1], 240);
+  return {
+    description: descriptions[0] || "",
+    items: products.slice(0, 8),
+    categories: categories.slice(0, 6),
+    title,
+  };
+}
+
+function extractAboutDescription(html) {
+  const paragraphBlocks = [...String(html || "").matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map((match) => match[1]);
+  const descriptionBlocks = [...String(html || "").matchAll(/<div\b[^>]*data-magic\s*=\s*["']description["'][^>]*>([\s\S]*?)<\/div>/gi)].map((match) => match[1]);
+  const candidates = [...paragraphBlocks, ...descriptionBlocks]
+    .map((value) => cleanProfileText(value, 700))
+    .filter((text) => text.length >= 70 && text.length <= 700)
+    .filter((text) => !/\b(?:privacy policy|cookie policy|terms and conditions|all rights reserved)\b/i.test(text));
+  return candidates.find((text) => /\b(?:we are|we offer|we provide|our (?:company|store|mission)|is (?:an?|the) )\b/i.test(text)) || candidates[0] || "";
+}
+
+async function enrichStoreProfile(initialProfile, html, pageUrl, signal) {
+  const profile = {
+    description: initialProfile.description || "",
+    items: [...(initialProfile.items || [])],
+    categories: [...(initialProfile.categories || [])],
+    title: initialProfile.title || "",
+  };
+  const origin = new URL(pageUrl).origin;
+  let profileUrl = pageUrl;
+
+  if (!profile.items.length && /cdn\.shopify\.com|\bShopify\b|myshopify\.com/i.test(`${html} ${pageUrl}`)) {
     try {
-      const rating = findStoreRating(JSON.parse(decodeHtml(match[1]).trim()));
-      if (rating) return rating;
-    } catch {}
+      const catalogUrl = new URL("/products.json?limit=8", origin);
+      const response = await fetch(catalogUrl, { signal, headers: { Accept: "application/json" } });
+      if (response.ok && String(response.headers.get("content-type") || "").toLowerCase().includes("json")) {
+        const products = (await response.json())?.products;
+        if (Array.isArray(products)) {
+          profile.items = [...new Set(products.map((product) => cleanProfileText(product?.title, 180)).filter(Boolean))].slice(0, 8);
+          profile.categories = [...new Set(products.map((product) => cleanProfileText(product?.product_type, 120)).filter(Boolean))].slice(0, 6);
+        }
+      }
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+    }
+  }
+
+  if (!profile.description) {
+    for (const pathname of ["/about", "/pages/about-us", "/pages/about"]) {
+      try {
+        const fallbackUrl = new URL(pathname, origin);
+        const response = await fetch(fallbackUrl, {
+          redirect: "follow",
+          signal,
+          headers: { Accept: "text/html,application/xhtml+xml", "User-Agent": "Mozilla/5.0 (compatible; AloCouponProfileBot/1.0; +https://alocoupon.com)" },
+        });
+        if (!response.ok || !String(response.headers.get("content-type") || "").toLowerCase().includes("html")) continue;
+        const fallbackHtml = await response.text();
+        const fallbackProfile = extractStoreProfile(fallbackHtml);
+        fallbackProfile.description ||= extractAboutDescription(fallbackHtml);
+        if (!fallbackProfile.description) continue;
+        profile.description = fallbackProfile.description;
+        profile.items = profile.items.length ? profile.items : fallbackProfile.items;
+        profile.categories = profile.categories.length ? profile.categories : fallbackProfile.categories;
+        profileUrl = response.url || fallbackUrl.href;
+        break;
+      } catch (error) {
+        if (error.name === "AbortError") throw error;
+      }
+    }
+  }
+  return { profile, profileUrl };
+}
+
+function extractRating(html) {
+  for (const document of jsonLdDocuments(html)) {
+    const rating = findStoreRating(document);
+    if (rating) return rating;
   }
   return null;
 }
@@ -248,16 +403,19 @@ async function fetchStoreRating(store) {
         const contentType = String(response.headers.get("content-type") || "").toLowerCase();
         if (!contentType.includes("html")) throw new Error("response is not HTML");
         const html = await response.text();
+        const enrichedProfile = await enrichStoreProfile(extractStoreProfile(html), html, response.url || requestUrl, controller.signal);
+        const profile = enrichedProfile.profile;
+        const profileUrl = enrichedProfile.profileUrl;
         const structuredRating = extractRating(html);
         const providers = detectReviewProviders(html);
         const judgeMeCredentialsFound = Boolean(findJudgeMeCredentials(html));
-        if (structuredRating) return { rating: structuredRating, source: "store-jsonld", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl };
+        if (structuredRating) return { rating: structuredRating, source: "store-jsonld", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl, profile, profileUrl };
         const yotpoRating = await fetchYotpoSiteRating(html, controller.signal);
-        if (yotpoRating) return { rating: yotpoRating, source: "yotpo-site-reviews", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl };
+        if (yotpoRating) return { rating: yotpoRating, source: "yotpo-site-reviews", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl, profile, profileUrl };
         const judgeMeRating = await fetchJudgeMeShopRating(html, controller.signal);
-        if (judgeMeRating) return { rating: judgeMeRating, source: "judgeme-shop-reviews", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl };
+        if (judgeMeRating) return { rating: judgeMeRating, source: "judgeme-shop-reviews", providers, judgeMeCredentialsFound, finalUrl: response.url || requestUrl, profile, profileUrl };
         const googleRating = await fetchGooglePlacesRating(store, response.url || requestUrl, controller.signal);
-        return { rating: googleRating, source: googleRating ? "google-places" : "", providers, judgeMeCredentialsFound, finalUrl: googleRating?.sourceUrl || response.url || requestUrl };
+        return { rating: googleRating, source: googleRating ? "google-places" : "", providers, judgeMeCredentialsFound, finalUrl: googleRating?.sourceUrl || response.url || requestUrl, profile, profileUrl };
       } catch (error) {
         lastError = error;
       }
@@ -274,6 +432,7 @@ async function main() {
   const stores = JSON.parse(fs.readFileSync(storesFile, "utf8").replace(/^\uFEFF/, ""));
   const candidates = stores.filter((store) => store && !store.deleted && store.sourceUrl);
   const found = [];
+  const profiled = [];
   const providerStores = new Map();
   const judgeMeCredentialStores = [];
   let cursor = 0;
@@ -290,6 +449,16 @@ async function main() {
           providerStores.set(provider, names);
         });
         if (result.judgeMeCredentialsFound) judgeMeCredentialStores.push(store.name);
+        const profileHasData = Boolean(result.profile?.description || result.profile?.items?.length || result.profile?.categories?.length);
+        if (profileHasData) {
+          store.merchandiseDescription = result.profile.description || "";
+          store.merchandiseItems = result.profile.items || [];
+          store.merchandiseCategories = result.profile.categories || [];
+          store.merchandiseSourceUrl = cleanOfficialUrl(result.profileUrl || result.finalUrl || store.sourceUrl);
+          store.merchandiseUpdatedAt = new Date().toISOString();
+          if (result.profile.title) store.sourceTitle = result.profile.title;
+          profiled.push(store);
+        }
         if (result.rating) {
           store.ratingValue = result.rating.ratingValue;
           store.ratingCount = result.rating.ratingCount;
@@ -297,7 +466,7 @@ async function main() {
           store.ratingSourceUrl = result.finalUrl;
           store.ratingUpdatedAt = new Date().toISOString();
           found.push(store);
-          console.log(`[${index + 1}/${candidates.length}] ${store.name}: ${store.ratingValue}/5 from ${store.ratingCount} votes`);
+          console.log(`[${index + 1}/${candidates.length}] ${store.name}: ${store.ratingValue}/5 from ${store.ratingCount} votes; profile=${profileHasData ? "verified" : "unavailable"}`);
         } else {
           if (["store-jsonld", "yotpo-site-reviews", "judgeme-shop-reviews", "google-places"].includes(store.ratingSource)) {
             store.ratingValue = 0;
@@ -306,7 +475,7 @@ async function main() {
             store.ratingSourceUrl = "";
             store.ratingUpdatedAt = "";
           }
-          console.log(`[${index + 1}/${candidates.length}] ${store.name}: no verified Store rating`);
+          console.log(`[${index + 1}/${candidates.length}] ${store.name}: no verified Store rating; profile=${profileHasData ? "verified" : "unavailable"}`);
         }
       } catch (error) {
         console.warn(`[${index + 1}/${candidates.length}] ${store.name}: ${error.name === "AbortError" ? "timeout" : error.message}`);
@@ -318,6 +487,7 @@ async function main() {
   fs.writeFileSync(storesFile, `${JSON.stringify(stores, null, 2)}\n`);
   found.sort((a, b) => b.ratingCount - a.ratingCount || b.ratingValue - a.ratingValue);
   console.log(`Synced ${candidates.length} stores; ${found.length} publish a valid Store AggregateRating.`);
+  console.log(`MERCHANDISE_PROFILES=${profiled.length}/${candidates.length}`);
   [...providerStores.entries()].sort((a, b) => b[1].length - a[1].length).forEach(([provider, names]) => {
     console.log(`PROVIDER ${provider}: ${names.length} store(s) - ${names.join(", ")}`);
   });

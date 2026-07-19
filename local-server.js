@@ -3112,11 +3112,16 @@ function normalizeStore(input, existing = null) {
     sourceUrl,
     sourceTitle: String(input.sourceTitle || '').trim().slice(0, 240),
     productImage: sanitizeOfferImage(input.productImage || '', 'Product image', 1_500 * 1024),
-    ratingValue: Number(input.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue))) : 0,
-    ratingCount: Number(input.ratingCount) > 0 ? Math.floor(Number(input.ratingCount)) : 0,
-    ratingSource: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingSource || 'store-jsonld').trim().slice(0, 80) : '',
-    ratingSourceUrl: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingSourceUrl || sourceUrl).trim().slice(0, 2000) : '',
-    ratingUpdatedAt: Number(input.ratingValue) > 0 && Number(input.ratingCount) > 0 ? String(input.ratingUpdatedAt || existing?.ratingUpdatedAt || now).trim().slice(0, 80) : '',
+    ratingValue: Number(input.ratingValue ?? existing?.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue ?? existing?.ratingValue))) : 0,
+    ratingCount: Number(input.ratingCount ?? existing?.ratingCount) > 0 ? Math.floor(Number(input.ratingCount ?? existing?.ratingCount)) : 0,
+    ratingSource: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingSource ?? existing?.ratingSource ?? 'store-jsonld').trim().slice(0, 80) : '',
+    ratingSourceUrl: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingSourceUrl ?? existing?.ratingSourceUrl ?? sourceUrl).trim().slice(0, 2000) : '',
+    ratingUpdatedAt: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingUpdatedAt ?? existing?.ratingUpdatedAt ?? now).trim().slice(0, 80) : '',
+    merchandiseDescription: String(input.merchandiseDescription ?? existing?.merchandiseDescription ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200),
+    merchandiseItems: [...new Set((Array.isArray(input.merchandiseItems ?? existing?.merchandiseItems) ? (input.merchandiseItems ?? existing?.merchandiseItems) : []).map((item) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 180)).filter(Boolean))].slice(0, 8),
+    merchandiseCategories: [...new Set((Array.isArray(input.merchandiseCategories ?? existing?.merchandiseCategories) ? (input.merchandiseCategories ?? existing?.merchandiseCategories) : []).map((item) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 120)).filter(Boolean))].slice(0, 6),
+    merchandiseSourceUrl: String(input.merchandiseSourceUrl ?? existing?.merchandiseSourceUrl ?? '').trim().slice(0, 2000),
+    merchandiseUpdatedAt: String(input.merchandiseUpdatedAt ?? existing?.merchandiseUpdatedAt ?? '').trim().slice(0, 80),
     order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
     createdAt: existing?.createdAt || input.createdAt || now,
     updatedAt: existing === input ? (existing.updatedAt || existing.createdAt || now) : now,
@@ -4151,30 +4156,18 @@ function getStoreCategoryProfile(group) {
 }
 
 function getStoreMerchandiseDescription(group, storeRecord = {}) {
-  const extractedDescription = String(storeRecord.description || storeRecord.aboutStore || "").replace(/\s+/g, " ").trim();
-  if (extractedDescription) return extractedDescription;
-
-  const storedCategory = String(storeRecord.category || "").trim();
-  const category = storedCategory && !/^other$/i.test(storedCategory) ? storedCategory : getStoreCategoryProfile(group);
-  const categoryProducts = {
-    "Beauty & Personal Care": "hair care, skincare, cosmetics, fragrances, grooming products, and salon essentials",
-    "Fashion & Accessories": "clothing, footwear, bags, jewelry, and fashion accessories",
-    "Electronics & Technology": "electronics, displays, smart devices, accessories, and other technology products",
-    "Health & Wellness": "health, fitness, nutrition, supplements, and personal wellness products",
-    "Home & Garden": "home, kitchen, garden, furniture, decor, and everyday household products",
-    "Pets": "pet food, care products, accessories, habitats, and other supplies for pets",
-    "Collectibles & General Merchandise": "collectibles, gifts, accessories, and general merchandise",
-    "Software & Online Services": "software, subscriptions, digital tools, and online services",
-    "Online Retail": "products and accessories available through its online catalog",
-  };
-  const productNames = [...new Set(group.items
-    .map((offer) => hideCouponValue(offer.sourceTitle || "", offer))
-    .map((value) => value.replace(/\s*[|–—-]\s*[^|–—-]+$/, "").trim())
-    .filter((value) => value && !/\b(?:coupon|promo|discount|deal|sale|free shipping|storewide)\b/i.test(value)))]
-    .slice(0, 4);
-  const merchandise = categoryProducts[category] || categoryProducts["Online Retail"];
-  const catalogDetails = productNames.length ? ` Products found in the current store catalog include ${productNames.join(", ")}.` : "";
-  return `${group.brand} is an online ${category.toLowerCase()} store offering ${merchandise}.${catalogDetails}`;
+  const verifiedDescription = String(storeRecord.merchandiseDescription || "").replace(/\s+/g, " ").trim();
+  const manualDescription = String(storeRecord.aboutStore || storeRecord.description || "").replace(/\s+/g, " ").trim();
+  const safeManualDescription = /\b(?:coupon codes?|promo codes?)\b.*\b(?:verified|updated|save)\b/i.test(manualDescription) ? "" : manualDescription;
+  const description = verifiedDescription || safeManualDescription;
+  const items = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).filter(Boolean).slice(0, 5);
+  if (!description && !items.length) {
+    return `${group.brand} has not published a merchandise description that AloCoupon can verify from its official website yet. Open the official store link to review its current catalog.`;
+  }
+  const itemSummary = description && items.length && !items.some((item) => description.toLowerCase().includes(String(item).toLowerCase()))
+    ? ` Products identified in the store's official catalog data include ${items.join(", ")}.`
+    : "";
+  return `${description || `${group.brand}'s official catalog data identifies ${items.join(", ")}.`}${itemSummary}`.trim();
 }
 
 function hideCouponValue(value, offer, replacement = "Coupon Code") {
@@ -6557,6 +6550,9 @@ function storePage(group) {
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
   const aboutCopy = escapeHtml(storeRecord.aboutStore || merchandiseDescription);
+  const merchandiseSourceUrl = escapeHtml(storeRecord.merchandiseSourceUrl || "");
+  const merchandiseSourceDate = new Date(storeRecord.merchandiseUpdatedAt || 0);
+  const merchandiseSourceLabel = Number.isNaN(merchandiseSourceDate.getTime()) ? "" : merchandiseSourceDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const howToApplyCopy = escapeHtml(storeRecord.howToApply || '');
   const storeCategory = escapeHtml(categoryProfile);
   const customFaqs = String(storeRecord.faqs || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
@@ -6567,7 +6563,8 @@ function storePage(group) {
   const rating = getStoreRating(group);
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
-  const productCoverage = visibleItems.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer))}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
+  const verifiedMerchandiseItems = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).slice(0, 8);
+  const productCoverage = verifiedMerchandiseItems.map((item) => `<li><strong>${escapeHtml(item)}</strong><span>Official store data</span></li>`).join("");
   const offerRows = visibleItems.map((offer) => {
     const sourceTitle = hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer);
     const sourceSummary = getStoreOfferDescription(offer, group.brand);
@@ -6735,7 +6732,10 @@ function storePage(group) {
     .store-product-coverage { display: grid; gap: 8px; list-style: none; margin: 12px 0 0; padding: 0; }
     .store-product-coverage li { align-items: center; border-bottom: 1px solid #e8ecef; display: flex; gap: 15px; justify-content: space-between; padding: 9px 0; }
     .store-product-coverage a { color: #174d6b; font-size: .84rem; font-weight: 750; text-decoration: none; }
+    .store-product-coverage strong { color: #174d6b; font-size: .84rem; font-weight: 750; }
     .store-product-coverage span { color: #07825a; flex: 0 0 auto; font-size: .75rem; font-weight: 850; }
+    .store-merchandise-source { color: #75858f; display: block; font-size: .74rem; margin-top: 9px; }
+    .store-merchandise-source a { color: #087dbd; font-weight: 800; }
     .store-faq-card > p, .store-related-card > p, .store-rating-empty p { color: #586a76; font-size: .86rem; line-height: 1.65; }
     .store-faq-list details { border-top: 1px solid #e1e6e9; padding: 15px 0; }
     .store-faq-list summary { color: #183d54; cursor: pointer; font-size: .92rem; font-weight: 850; }
@@ -6814,9 +6814,9 @@ function storePage(group) {
       <h2>About ${brand} coupons and deals</h2>
       <h3>What ${brand} sells</h3>
       <p>${aboutCopy}</p>
+      ${merchandiseSourceUrl ? `<small class="store-merchandise-source">Source: <a href="${merchandiseSourceUrl}" target="_blank" rel="noopener nofollow">official store website</a>${merchandiseSourceLabel ? ` &middot; extracted ${escapeHtml(merchandiseSourceLabel)}` : ""}</small>` : `<small class="store-merchandise-source">No verified merchandise source is currently available.</small>`}
       <p>Based on the offers currently available through AloCoupon, ${brand} is listed in <strong>${storeCategory}</strong>. This page contains ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} code-free ${dealCount === 1 ? "deal" : "deals"}. The strongest listed saving is ${bestOffer}, and the records were last checked on ${updatedLabel}. The merchant domain connected to these offers is ${domain}.</p>
-      <h3>Current product and promotion coverage</h3>
-      <ul class="store-product-coverage">${productCoverage}</ul>
+      ${productCoverage ? `<h3>Products found in official catalog data</h3><ul class="store-product-coverage">${productCoverage}</ul>` : ""}
       <h3>How AloCoupon verifies ${brand} offers</h3>
       <p>Each offer keeps its original destination URL and source wording. AloCoupon separates coupon codes from automatic deals, records the advertised saving, and displays a confirmed expiration date only when the source data supplies a valid date. If a date is missing, the page says “Expiry not provided” instead of using an unsupported countdown label.</p>
       <h3>What to check before buying</h3>

@@ -3819,7 +3819,7 @@ async function sendNewsletterConfirmation(subscriber) {
 
 function buildDealAlertContent(offers) {
   const cards = offers.slice(0, 8).map((offer) => {
-    const title = escapeHtml(getDisplayOfferTitle(offer));
+    const title = escapeHtml(hideCouponValue(getDisplayOfferTitle(offer), offer));
     const summary = escapeHtml(getOfferSummary(offer));
     const discount = escapeHtml(offer.discount || "New deal");
     const brand = escapeHtml(getOfferBrandName(offer));
@@ -4047,8 +4047,8 @@ function jsonLdScript(payload) {
 function dealStructuredData(offer) {
   const dealPath = getOfferDealPath(offer);
   const dealUrl = getAbsoluteUrl(dealPath);
-  const title = getDisplayOfferTitle(offer);
-  const description = getOfferSummary(offer) || "Review this coupon offer before visiting the partner website.";
+  const title = hideCouponValue(getDisplayOfferTitle(offer), offer);
+  const description = getStoreOfferDescription(offer, getOfferBrandName(offer));
   const validThrough = getValidOfferExpiry(offer) || undefined;
 
   return {
@@ -4097,7 +4097,8 @@ function dealStructuredData(offer) {
         "description": description,
         "url": dealUrl,
         "category": offer.category || "Coupon",
-        "availability": "https://schema.org/InStock",
+        "availability": "https://schema.org/OnlineOnly",
+        "identifier": offer.id,
         ...(validThrough ? { "validThrough": validThrough } : {}),
         "seller": {
           "@type": "Organization",
@@ -4211,6 +4212,8 @@ function getStoreFaq(group) {
   const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = group.items.length - codeCount;
   const datedOffers = group.items.filter(getValidOfferExpiry).length;
+  const merchandiseItems = (Array.isArray(group.store?.merchandiseItems) ? group.store.merchandiseItems : []).filter(Boolean).slice(0, 5);
+  const category = group.store?.category || getStoreCategoryProfile(group);
   return [
     {
       question: `How do I use a ${brand} coupon code?`,
@@ -4223,6 +4226,12 @@ function getStoreFaq(group) {
       answer: `AloCoupon currently lists ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} online ${dealCount === 1 ? "deal" : "deals"} for ${brand}. Each entry links to its original destination and keeps the source title or the original API description so shoppers can verify the scope and terms.`,
     },
     {
+      question: `Are the current ${brand} coupon codes still valid?`,
+      answer: datedOffers
+        ? `${datedOffers} ${brand} ${datedOffers === 1 ? "offer includes" : "offers include"} an expiration date supplied by the source. For every other offer, AloCoupon labels the expiration as not supplied instead of inventing a date. Always confirm that checkout accepts the code before placing the order.`
+        : `The current source records do not supply a confirmed expiration date for these ${brand} offers. AloCoupon therefore does not claim a made-up end date or publish validThrough for them. Open the offer, apply it at checkout, and confirm the saving before paying.`,
+    },
+    {
       question: `Why is my ${brand} coupon code not working?`,
       answer: `The code may be limited to selected products, require a minimum order, exclude sale items, or have expired. Check spelling and capitalization, confirm the cart meets the offer terms, and try another listed offer. ${datedOffers ? `${datedOffers} offers include a supplied expiration date.` : "The current source records do not include confirmed expiration dates, so the merchant checkout page is the final source of validity."}`,
     },
@@ -4231,6 +4240,16 @@ function getStoreFaq(group) {
       answer: dealCount
         ? `${dealCount} current ${brand} ${dealCount === 1 ? "deal is" : "deals are"} listed without a coupon code. For these offers, select Get Deal and verify the sale price or automatic discount on the original website before completing the purchase.`
         : `All current ${brand} offers in the AloCoupon source records use coupon codes. Select Get Code, copy the code, and confirm that checkout accepts it before completing the purchase.`,
+    },
+    {
+      question: `Can I combine more than one ${brand} coupon code?`,
+      answer: `AloCoupon's source records do not confirm that ${brand} allows coupon stacking. Most checkout systems accept one promo code per order, but the merchant's current terms control. Try the strongest eligible code first and compare the final total before paying.`,
+    },
+    {
+      question: `What does ${brand} sell?`,
+      answer: merchandiseItems.length
+        ? `${brand} is listed under ${category}. Products identified from the official store catalog include ${merchandiseItems.join(", ")}. Follow the official source link in the About section to check the latest selection and availability.`
+        : `${brand} is listed under ${category}. AloCoupon has not verified a detailed product list from the official site, so shoppers should use the official source link in the About section to review the current catalog.`,
     },
   ];
 }
@@ -4447,9 +4466,11 @@ function storeStructuredData(group) {
             "item": {
               "@type": "Offer",
               "url": getAbsoluteUrl(getOfferDealPath(offer)),
-              "name": String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(),
+              "name": hideCouponValue(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(), offer),
               "description": getStoreOfferDescription(offer, group.brand),
               "category": String(offer.category && !/^other$/i.test(offer.category) ? offer.category : category),
+              "availability": "https://schema.org/OnlineOnly",
+              "identifier": offer.id,
               ...(validThrough ? { "validThrough": validThrough } : {}),
               "seller": { "@type": "Organization", "name": group.brand },
             },
@@ -6546,15 +6567,16 @@ function redirectToOfferAffiliate(offer, res) {
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
   const brand = escapeHtml(getOfferBrandName(offer));
-  const title = escapeHtml(getDisplayOfferTitle(offer));
+  const title = escapeHtml(hideCouponValue(getDisplayOfferTitle(offer), offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");
   const validExpiry = getValidOfferExpiry(offer);
-  const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
-  const review = escapeHtml(getOfferSummary(offer) || "Review this offer before visiting the partner website.");
-  const code = escapeHtml(offer.code || "No code needed");
-  const hasCode = Boolean(String(offer.code || "").trim());
-  const safeAffiliateLink = escapeHtml(affiliateLink);
+  const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
+  const review = escapeHtml(getStoreOfferDescription(offer, getOfferBrandName(offer)));
+  const hasCode = isUsableCouponCode(offer.code);
+  const offerId = escapeHtml(offer.id);
+  const safeAffiliateLink = escapeHtml(getAloCouponTrackingUrl(affiliateLink));
+  const storePath = escapeHtml(getOfferStorePath(getOfferBrandName(offer)));
   const dealUrl = escapeHtml(getAbsoluteUrl(getOfferDealPath(offer)));
   const structuredData = jsonLdScript(dealStructuredData(offer));
   const siteSettings = readSiteSettings();
@@ -6608,14 +6630,32 @@ function dealPage(offer) {
           <span>${hasCode ? "Coupon code available" : "Affiliate deal"}</span>
         </div>
         <p>${review}</p>
-        <div class="deal-landing-code">${code}</div>
+        <div class="deal-landing-code" data-code-output>${hasCode ? "Code hidden until you click Get Code" : "No coupon code needed"}</div>
         <div class="deal-landing-actions">
-          <a href="${safeAffiliateLink}" rel="sponsored noopener">Open Affiliate Link</a>
-          <a class="secondary" href="/">Back to AloCoupon</a>
+          <a href="${safeAffiliateLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Open Deal"}</a>
+          <a class="secondary" href="${storePath}">Back to ${brand} coupons</a>
         </div>
       </div>
     </section>
   </main>
+  ${hasCode ? `<script>
+    (() => {
+      const link = document.querySelector('[data-reveal-code]');
+      const output = document.querySelector('[data-code-output]');
+      link.addEventListener('click', async () => {
+        output.textContent = 'Loading code…';
+        try {
+          const response = await fetch('/api/offers/' + encodeURIComponent(link.dataset.offerId) + '/code', { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Coupon code is unavailable.');
+          output.textContent = result.code;
+          if (navigator.clipboard) navigator.clipboard.writeText(result.code).catch(() => {});
+        } catch (error) {
+          output.textContent = error.message || 'Coupon code is unavailable.';
+        }
+      });
+    })();
+  <\/script>` : ""}
 </body>
 </html>`;
 }
@@ -6682,11 +6722,12 @@ function storePage(group) {
     const summary = escapeHtml(sourceSummary);
     const discount = escapeHtml(formatStoreDiscount(offer.discount));
     const hasCode = isUsableCouponCode(offer.code);
-    const code = escapeHtml(hasCode ? offer.code : "No code needed");
     const typeLabel = hasCode ? "Coupon code" : "Online deal";
     const validExpiry = getValidOfferExpiry(offer);
-    const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
+    const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const offerId = escapeHtml(offer.id);
+    const detailPath = escapeHtml(getOfferDealPath(offer));
     const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
     return `
       <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount}`.toLowerCase())}">
@@ -6696,9 +6737,10 @@ function storePage(group) {
           <h2>${title}</h2>
           <p>${summary}</p>
           <small class="brand-source-note">Source: original product link${sourcePrice ? ` &middot; ${sourcePrice}` : ""} &middot; ${expiry}</small>
+          <a class="brand-offer-details" href="${detailPath}">View offer details</a>
         </div>
         <div class="brand-offer-side${hasCode ? " has-code" : ""}">
-          <a class="brand-offer-action" href="${safeLink}" data-code="${hasCode ? code : ""}" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
+          <a class="brand-offer-action" href="${safeLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
         </div>
       </article>
     `;
@@ -6831,6 +6873,8 @@ function storePage(group) {
     .store-reference-content .brand-offer-discount { background: #effaec; border: 1px dashed #86ca79; border-radius: 2px; color: #16810b; }
     .store-reference-content .brand-offer-action { background: #079d13; border-radius: 3px; font-size: .9rem; }
     .brand-source-note, .brand-code-preview { color: #8a969e; display: block; font-size: .68rem; }
+    .brand-offer-details { color: #087dbd; display: inline-block; font-size: .72rem; font-weight: 800; margin-top: 8px; text-decoration: none; }
+    .brand-offer-details:hover { text-decoration: underline; }
     .store-about-card, .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; margin-top: 28px; padding: 26px; }
     .store-about-card h2, .store-how-card h2, .store-faq-card h2, .store-rating-card h2, .store-related-card h2 { font-size: 1.5rem; margin: 0 0 20px; }
     .store-about-card h3 { font-size: 1rem; margin: 20px 0 6px; }
@@ -6920,7 +6964,7 @@ function storePage(group) {
     .brand-offer-meta { color: #009d08; font-size: 16px; font-weight: 500; margin: 0 0 24px; text-transform: none; }
     .offer-type-dot, .verified-label { display: none; }
     .brand-offer-card h2 { color: #252525; font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0 0 22px; }
-    .brand-offer-card p { color: #8190a0; font-size: 14px; line-height: 1.35; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .brand-offer-card p { color: #8190a0; display: -webkit-box; font-size: 14px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.35; margin: 0; overflow: hidden; white-space: normal; }
     .brand-source-note { display: none; }
     .brand-offer-side { align-items: center; align-self: center; display: flex; justify-content: flex-end; position: relative; }
     .brand-offer-side.has-code::after { align-items: center; border: 2px dashed #00a20a; border-radius: 3px; color: #00a20a; content: "CODE"; display: flex; font-size: 12px; font-weight: 800; height: 40px; justify-content: flex-end; padding-right: 4px; position: absolute; right: 0; width: 54px; }
@@ -6932,6 +6976,15 @@ function storePage(group) {
     .store-about-body { background: #f7f7f7; border: 1px solid #cfd2d4; padding: 16px; }
     .store-about-body h3:first-child { color: #28333b; margin-top: 0; }
     .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { border-radius: 0; }
+    .coupon-reveal-modal[hidden] { display: none; }
+    .coupon-reveal-modal { align-items: center; background: rgba(20, 31, 38, .72); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 1000; }
+    .coupon-reveal-dialog { background: #fff; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.28); max-width: 470px; padding: 28px; position: relative; text-align: center; width: 100%; }
+    .coupon-reveal-dialog h2 { color: #24313a; margin: 0 32px 8px; }
+    .coupon-reveal-dialog p { color: #687985; line-height: 1.5; }
+    .coupon-reveal-code { align-items: center; background: #f4fbf4; border: 2px dashed #079d13; color: #087d10; display: flex; font-size: 1.35rem; font-weight: 900; justify-content: center; letter-spacing: .05em; margin: 18px 0; min-height: 62px; padding: 10px; word-break: break-all; }
+    .coupon-reveal-copy { background: #079d13; border: 0; border-radius: 4px; color: #fff; cursor: pointer; font-size: .95rem; font-weight: 850; padding: 11px 20px; }
+    .coupon-reveal-close { background: transparent; border: 0; color: #6f7e87; cursor: pointer; font-size: 1.8rem; line-height: 1; position: absolute; right: 14px; top: 10px; }
+    .coupon-reveal-note { font-size: .75rem; margin-bottom: 0; }
     @media (max-width: 880px) { .store-reference-layout { grid-template-columns: 220px minmax(0, 1fr); } .store-reference-sidebar .brand-logo-shell { height: 120px; } .store-page-search { margin-left: 30px; } .store-reference-content .brand-offer-card { grid-template-columns: 84px minmax(0, 1fr); } }
     @media (max-width: 680px) { .brand-topbar-inner { align-items: stretch; flex-direction: column; gap: 12px; } .store-page-search { margin: 0; max-width: none; } .store-reference-layout { display: block; } .store-reference-sidebar { position: static; } .store-reference-sidebar .brand-hero-main { display: grid; grid-template-columns: 92px 1fr; text-align: left; } .store-reference-sidebar .brand-logo-shell { height: 92px; width: 92px; } .store-reference-sidebar .brand-eyebrow { justify-content: flex-start; } .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; } .store-stats-card { margin: 14px 0 24px; } .store-reference-content .brand-offer-tools { width: 100%; } .store-reference-content .brand-offer-search { display: none; } .store-reference-content .brand-offer-card { grid-template-columns: 76px minmax(0, 1fr); } .store-steps { grid-template-columns: 1fr; } .store-steps article { border-bottom: 1px solid #e1e5e8; border-right: 0; padding: 0 0 18px; } }
     @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
@@ -7087,6 +7140,16 @@ function storePage(group) {
       </section>
     </div>
     <p class="brand-trust-note"><strong>✓ Verified</strong> · Affiliate links may earn AloCoupon a commission at no extra cost to you.</p>
+    <div class="coupon-reveal-modal" hidden role="dialog" aria-modal="true" aria-labelledby="coupon-reveal-title">
+      <div class="coupon-reveal-dialog">
+        <button class="coupon-reveal-close" type="button" aria-label="Close coupon dialog">×</button>
+        <h2 id="coupon-reveal-title">Your coupon code</h2>
+        <p>The merchant website opened in a new tab. Copy this code and apply it at checkout.</p>
+        <div class="coupon-reveal-code" aria-live="polite">Loading code…</div>
+        <button class="coupon-reveal-copy" type="button">Copy code</button>
+        <p class="coupon-reveal-note">Availability and eligibility are controlled by the merchant. Confirm the discount before paying.</p>
+      </div>
+    </div>
   </main>
   <script>
     (() => {
@@ -7111,9 +7174,43 @@ function storePage(group) {
         applyFilters();
       }));
       search.addEventListener('input', applyFilters);
-      document.querySelectorAll('.brand-offer-action[data-code]').forEach((link) => link.addEventListener('click', () => {
-        const code = link.dataset.code;
-        if (code && navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+      const couponModal = document.querySelector('.coupon-reveal-modal');
+      const couponCode = couponModal && couponModal.querySelector('.coupon-reveal-code');
+      const couponCopy = couponModal && couponModal.querySelector('.coupon-reveal-copy');
+      const closeCouponModal = () => {
+        if (couponModal) couponModal.hidden = true;
+      };
+      if (couponModal) {
+        couponModal.querySelector('.coupon-reveal-close').addEventListener('click', closeCouponModal);
+        couponModal.addEventListener('click', (event) => { if (event.target === couponModal) closeCouponModal(); });
+        document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeCouponModal(); });
+        couponCopy.addEventListener('click', async () => {
+          const code = couponCode.dataset.code || '';
+          if (!code) return;
+          try {
+            await navigator.clipboard.writeText(code);
+            couponCopy.textContent = 'Copied!';
+          } catch {
+            window.getSelection().selectAllChildren(couponCode);
+            couponCopy.textContent = 'Select and copy the code';
+          }
+        });
+      }
+      document.querySelectorAll('.brand-offer-action[data-reveal-code]').forEach((link) => link.addEventListener('click', async () => {
+        couponModal.hidden = false;
+        couponCode.textContent = 'Loading code…';
+        couponCode.dataset.code = '';
+        couponCopy.textContent = 'Copy code';
+        try {
+          const response = await fetch('/api/offers/' + encodeURIComponent(link.dataset.offerId) + '/code', { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Coupon code is unavailable.');
+          couponCode.textContent = result.code;
+          couponCode.dataset.code = result.code;
+          if (navigator.clipboard) navigator.clipboard.writeText(result.code).catch(() => {});
+        } catch (error) {
+          couponCode.textContent = error.message || 'Coupon code is unavailable.';
+        }
       }));
       const ratingCard = document.querySelector('.store-rating-card[data-store-slug]');
       if (ratingCard) {
@@ -7286,7 +7383,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      redirectToOfferAffiliate(offer, res);
+      send(res, 200, dealPage(offer), "text/html; charset=utf-8");
       return;
     }
 
@@ -7388,7 +7485,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/offers") {
-      sendJson(res, 200, readOffers());
+      const offers = readOffers();
+      sendJson(res, 200, isAuthenticated(req) ? offers : offers.map((offer) => {
+        const { code, ...publicOffer } = offer;
+        return { ...publicOffer, hasCode: isUsableCouponCode(code) };
+      }));
+      return;
+    }
+
+    const publicOfferCodeMatch = url.pathname.match(/^\/api\/offers\/([^/]+)\/code$/);
+    if (req.method === "GET" && publicOfferCodeMatch) {
+      const offerId = decodeURIComponent(publicOfferCodeMatch[1]);
+      const offer = readOffers().find((item) => item.id === offerId && item.visible !== false);
+      if (!offer || !isUsableCouponCode(offer.code)) return sendJson(res, 404, { error: "Coupon code is unavailable." });
+      send(res, 200, JSON.stringify({ code: String(offer.code).trim() }), "application/json; charset=utf-8", {
+        "Cache-Control": "no-store, private",
+      });
       return;
     }
 

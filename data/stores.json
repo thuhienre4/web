@@ -4,7 +4,7 @@
     "name": "Planetbeauty",
     "sourceBrand": "planetbeauty.com",
     "slug": "planetbeauty",
-    "category": "Other",
+    "category": "Beauty & Personal Care",
     "event": "Uncategorized",
     "image": "/assets/brand-logos/planetbeauty-com.avif",
     "approved": true,
@@ -381,7 +381,7 @@
     "name": "Happybears Ca",
     "sourceBrand": "happybears.ca",
     "slug": "happybears-ca",
-    "category": "Other",
+    "category": "Health & Wellness",
     "event": "Uncategorized",
     "image": "/assets/brand-logos/happybears-ca.png",
     "approved": true,
@@ -398,7 +398,12 @@
     "productImage": "",
     "order": 58,
     "createdAt": "2026-07-08T03:27:24.423Z",
-    "updatedAt": "2026-07-08T03:27:24.423Z"
+    "updatedAt": "2026-07-08T03:27:24.423Z",
+    "merchandiseDescription": "Happy Bears Edibles sells Canadian hemp-derived cannabinoid products, including CBD gummies, sugar-free and vegan gummy options, oils, capsules, and other edible formats. Its official catalog groups products by uses such as relaxation, sleep support, focus, and pain relief.",
+    "merchandiseItems": ["Broad Spectrum CBD Gummy Bears", "Broad Spectrum Peach Rings", "Sugar Free Gummy Bears", "CBD Hemp Infused Chocolate Bites", "THCV Capsules"],
+    "merchandiseCategories": ["CBD Edibles", "Gummies", "Capsules"],
+    "merchandiseSourceUrl": "https://happybears.ca/collection/cbd-gummies-canada/",
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_35374f8e9aae4857",
@@ -531,7 +536,7 @@
     "name": "Chewrevitabite",
     "sourceBrand": "chewrevitabite.com",
     "slug": "chewrevitabite",
-    "category": "Other",
+    "category": "Health & Wellness",
     "event": "Uncategorized",
     "image": "/assets/brand-logos/chewrevitabite-com.webp",
     "approved": true,
@@ -549,13 +554,13 @@
     "order": 73,
     "createdAt": "2026-07-08T03:27:09.423Z",
     "updatedAt": "2026-07-08T03:27:09.423Z",
-    "merchandiseDescription": "",
+    "merchandiseDescription": "RevitaBite sells dentist-formulated oral-care chewing gum made with hydroxyapatite, xylitol, and MCT oil. The official product page describes the gum as supporting enamel strength, plaque reduction, the oral microbiome, and fresher breath between brushings.",
     "merchandiseItems": [
       "RevitaBite - Dentist Formulated Remineralizing Gum"
     ],
-    "merchandiseCategories": [],
-    "merchandiseSourceUrl": "https://chewrevitabite.com/",
-    "merchandiseUpdatedAt": "2026-07-19T02:49:29.269Z"
+    "merchandiseCategories": ["Oral Care", "Functional Gum"],
+    "merchandiseSourceUrl": "https://chewrevitabite.com/products/revitabite-oral-care-supplement",
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_2540850bd9b78c2d",
@@ -989,7 +994,7 @@
     "name": "Shellwatersystems",
     "sourceBrand": "shellwatersystems.com",
     "slug": "shellwatersystems",
-    "category": "Other",
+    "category": "Home & Garden",
     "event": "Uncategorized",
     "image": "/assets/brand-logos/shellwatersystems-com.png",
     "approved": true,
@@ -1006,7 +1011,12 @@
     "productImage": "",
     "order": 125,
     "createdAt": "2026-07-08T03:26:17.423Z",
-    "updatedAt": "2026-07-08T03:26:17.423Z"
+    "updatedAt": "2026-07-08T03:26:17.423Z",
+    "merchandiseDescription": "Shell Water Systems sells residential water-treatment equipment assembled in Texas. Its official catalog includes whole-house filtration systems, salt-based water softeners, salt-free conditioners, reverse-osmosis drinking-water systems, ultraviolet filtration, combo units, filters, and replacement parts.",
+    "merchandiseItems": ["Whole House Filtration", "Salt Based Water Softener", "Salt Free Conditioner", "Pure Aqua Tankless Reverse Osmosis", "UV Ultraviolet Filtration"],
+    "merchandiseCategories": ["Water Filtration", "Water Softeners", "Drinking Water Systems"],
+    "merchandiseSourceUrl": "https://shellwatersystems.com/",
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_b00ecfde579a005f",
@@ -1246,7 +1256,7 @@
     "order": 153,
     "createdAt": "2026-06-30T00:54:00.000Z",
     "updatedAt": "2026-06-30T00:54:00.000Z",
-    "merchandiseDescription": "",
+    "merchandiseDescription": "Reflex Nutrition is a UK sports-nutrition brand with products for protein intake, training performance, recovery, muscle gain, dietary management, and everyday wellbeing. Its official catalog includes whey and plant-based protein, creatine, multivitamins, omega-3 supplements, bars, capsules, powders, and nutrition bundles.",
     "merchandiseItems": [
       "High Protein Twin Bar 12 Pack",
       "Nexgen® Multivitamin",
@@ -1264,7 +1274,7 @@
       "Powders"
     ],
     "merchandiseSourceUrl": "https://reflexnutrition.com/",
-    "merchandiseUpdatedAt": "2026-07-19T02:49:35.016Z"
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_52642a51e8226d4c",
@@ -1491,7 +1501,12 @@
     "productImage": "",
     "order": 180,
     "createdAt": "2026-06-30T00:27:00.000Z",
-    "updatedAt": "2026-06-30T00:27:00.000Z"
+    "updatedAt": "2026-06-30T00:27:00.000Z",
+    "merchandiseDescription": "Display NOW provides cloud-based digital-signage software for remotely managing media across connected screens. Its platform includes a signage manager, playlists, scheduling, remote preview and management, a drag-and-drop content studio, widgets and apps, offline playback, and player apps for web browsers, Android, Google TV, Fire TV, and Windows.",
+    "merchandiseItems": ["Digital Signage Manager", "Digital Signage Player", "Content Studio", "Playlist Scheduler", "Widgets and Apps"],
+    "merchandiseCategories": ["Digital Signage Software", "Cloud Software"],
+    "merchandiseSourceUrl": "https://displaynow.io/software",
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_471ad1d466d227d8",
@@ -1671,7 +1686,12 @@
     "productImage": "",
     "order": 198,
     "createdAt": "2026-06-30T00:09:00.000Z",
-    "updatedAt": "2026-06-30T00:09:00.000Z"
+    "updatedAt": "2026-06-30T00:09:00.000Z",
+    "merchandiseDescription": "XYZReptiles is an online reptile retailer whose official site publishes listings and care information for captive-bred reptiles. Its catalog covers snakes, lizards, tortoises, habitats, hides, bedding, lighting and heating equipment, feeding tools, and other reptile supplies.",
+    "merchandiseItems": ["Ball Pythons", "Boas", "Lizards", "Tortoises", "Habitats and Hides", "Lighting and Heating"],
+    "merchandiseCategories": ["Live Reptiles", "Reptile Supplies"],
+    "merchandiseSourceUrl": "https://www.xyzreptiles.com/",
+    "merchandiseUpdatedAt": "2026-07-19T07:00:00.000Z"
   },
   {
     "id": "store_ef3e52e7e0e9755b",

@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const dns = require("dns").promises;
 const net = require("net");
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 
 const root = __dirname;
 const host = process.env.HOST || "0.0.0.0";
@@ -22,6 +22,7 @@ const siteSettingsFile = path.join(dataDir, "site-settings.json");
 const adminUsersFile = path.join(dataDir, "admin-users.json");
 const adminCategoriesFile = path.join(dataDir, "admin-categories.json");
 const subscribersFile = path.join(dataDir, "subscribers.json");
+const storeUserRatingsFile = path.join(dataDir, "store-user-ratings.json");
 const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
@@ -33,6 +34,39 @@ const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
 const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const newsletterSecret = String(process.env.NEWSLETTER_SECRET || adminPassword);
 const newsletterRateLimits = new Map();
+const storeRatingRateLimits = new Map();
+const storeRatingSyncScript = path.join(root, "scripts", "sync-store-ratings.js");
+let storeRatingSyncProcess = null;
+let storeRatingSyncState = { status: "idle", trigger: "", startedAt: "", finishedAt: "", exitCode: null, summary: "", error: "" };
+
+function startStoreRatingSync(trigger = "manual") {
+  if (storeRatingSyncProcess) return false;
+  const startedAt = new Date().toISOString();
+  storeRatingSyncState = { status: "running", trigger, startedAt, finishedAt: "", exitCode: null, summary: "", error: "" };
+  const child = spawn(process.execPath, [storeRatingSyncScript], { cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  storeRatingSyncProcess = child;
+  let output = "";
+  let errors = "";
+  child.stdout.on("data", (chunk) => { output = (output + chunk.toString()).slice(-40_000); });
+  child.stderr.on("data", (chunk) => { errors = (errors + chunk.toString()).slice(-20_000); });
+  child.on("error", (error) => {
+    storeRatingSyncState = { ...storeRatingSyncState, status: "failed", finishedAt: new Date().toISOString(), exitCode: -1, error: error.message };
+    storeRatingSyncProcess = null;
+  });
+  child.on("close", (code) => {
+    const summary = output.match(/Synced \d+ stores; \d+ publish a valid Store AggregateRating\./)?.[0] || output.trim().split(/\r?\n/).filter(Boolean).at(-1) || "Sync completed.";
+    storeRatingSyncState = {
+      ...storeRatingSyncState,
+      status: code === 0 ? "completed" : "failed",
+      finishedAt: new Date().toISOString(),
+      exitCode: code,
+      summary,
+      error: code === 0 ? "" : (errors.trim().split(/\r?\n/).filter(Boolean).at(-1) || `Sync exited with code ${code}`),
+    };
+    storeRatingSyncProcess = null;
+  });
+  return true;
+}
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -2823,6 +2857,9 @@ function ensureDataFile() {
   if (!fs.existsSync(subscribersFile)) {
     fs.writeFileSync(subscribersFile, "[]");
   }
+  if (!fs.existsSync(storeUserRatingsFile)) {
+    fs.writeFileSync(storeUserRatingsFile, "[]");
+  }
 }
 
 function readSiteSettings() {
@@ -3080,6 +3117,16 @@ function normalizeStore(input, existing = null) {
     sourceUrl,
     sourceTitle: String(input.sourceTitle || '').trim().slice(0, 240),
     productImage: sanitizeOfferImage(input.productImage || '', 'Product image', 1_500 * 1024),
+    ratingValue: Number(input.ratingValue ?? existing?.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue ?? existing?.ratingValue))) : 0,
+    ratingCount: Number(input.ratingCount ?? existing?.ratingCount) > 0 ? Math.floor(Number(input.ratingCount ?? existing?.ratingCount)) : 0,
+    ratingSource: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingSource ?? existing?.ratingSource ?? 'store-jsonld').trim().slice(0, 80) : '',
+    ratingSourceUrl: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingSourceUrl ?? existing?.ratingSourceUrl ?? sourceUrl).trim().slice(0, 2000) : '',
+    ratingUpdatedAt: Number(input.ratingValue ?? existing?.ratingValue) > 0 && Number(input.ratingCount ?? existing?.ratingCount) > 0 ? String(input.ratingUpdatedAt ?? existing?.ratingUpdatedAt ?? now).trim().slice(0, 80) : '',
+    merchandiseDescription: String(input.merchandiseDescription ?? existing?.merchandiseDescription ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200),
+    merchandiseItems: [...new Set((Array.isArray(input.merchandiseItems ?? existing?.merchandiseItems) ? (input.merchandiseItems ?? existing?.merchandiseItems) : []).map((item) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 180)).filter(Boolean))].slice(0, 8),
+    merchandiseCategories: [...new Set((Array.isArray(input.merchandiseCategories ?? existing?.merchandiseCategories) ? (input.merchandiseCategories ?? existing?.merchandiseCategories) : []).map((item) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 120)).filter(Boolean))].slice(0, 6),
+    merchandiseSourceUrl: String(input.merchandiseSourceUrl ?? existing?.merchandiseSourceUrl ?? '').trim().slice(0, 2000),
+    merchandiseUpdatedAt: String(input.merchandiseUpdatedAt ?? existing?.merchandiseUpdatedAt ?? '').trim().slice(0, 80),
     order: Number.isFinite(Number(input.order)) ? Number(input.order) : 9999999,
     createdAt: existing?.createdAt || input.createdAt || now,
     updatedAt: existing === input ? (existing.updatedAt || existing.createdAt || now) : now,
@@ -3572,6 +3619,36 @@ function findImportedProduct(value) {
   return null;
 }
 
+function findImportedStoreRating(value) {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const rating = findImportedStoreRating(item);
+      if (rating) return rating;
+    }
+    return null;
+  }
+  const acceptedTypes = new Set(["organization", "corporation", "localbusiness", "store", "onlinestore", "onlinebusiness", "brand", "website"]);
+  const types = (Array.isArray(value["@type"]) ? value["@type"] : [value["@type"]]).map((type) => String(type || "").toLowerCase());
+  const aggregate = value.aggregateRating;
+  if (types.some((type) => acceptedTypes.has(type)) && aggregate && typeof aggregate === "object") {
+    const rawValue = Number(aggregate.ratingValue);
+    const bestRating = Number(aggregate.bestRating || 5);
+    const ratingCount = Math.floor(Number(aggregate.ratingCount || aggregate.reviewCount));
+    if (rawValue > 0 && bestRating > 0 && ratingCount > 0) {
+      return {
+        ratingValue: Math.min(5, Math.max(1, (rawValue / bestRating) * 5)),
+        ratingCount,
+      };
+    }
+  }
+  for (const key of ["@graph", "mainEntity", "itemListElement", "publisher", "provider", "about"]) {
+    const rating = findImportedStoreRating(value[key]);
+    if (rating) return rating;
+  }
+  return null;
+}
+
 function discoverStoreAssets(html, pageUrl) {
   const logos = [];
   const products = [];
@@ -3579,6 +3656,8 @@ function discoverStoreAssets(html, pageUrl) {
   let sourceDescription = "";
   let sourcePrice = "";
   let sourceCurrency = "";
+  let ratingValue = 0;
+  let ratingCount = 0;
   const add = (collection, value) => {
     const resolved = resolveImportedImage(value, pageUrl);
     if (resolved && !collection.includes(resolved)) collection.push(resolved);
@@ -3611,15 +3690,22 @@ function discoverStoreAssets(html, pageUrl) {
   }
   for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
-      const product = findImportedProduct(JSON.parse(decodeImportedHtml(match[1]).trim()));
-      if (!product) continue;
-      sourceTitle ||= cleanImportedText(product.name, 240);
-      sourceDescription ||= cleanImportedText(product.description);
-      const productImages = Array.isArray(product.image) ? product.image : [product.image];
-      productImages.forEach((image) => add(products, typeof image === "object" ? image?.url : image));
-      const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
-      sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
-      sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+      const structuredData = JSON.parse(decodeImportedHtml(match[1]).trim());
+      const storeRating = findImportedStoreRating(structuredData);
+      if (storeRating && !ratingValue) {
+        ratingValue = storeRating.ratingValue;
+        ratingCount = storeRating.ratingCount;
+      }
+      const product = findImportedProduct(structuredData);
+      if (product) {
+        sourceTitle ||= cleanImportedText(product.name, 240);
+        sourceDescription ||= cleanImportedText(product.description);
+        const productImages = Array.isArray(product.image) ? product.image : [product.image];
+        productImages.forEach((image) => add(products, typeof image === "object" ? image?.url : image));
+        const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
+        sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
+        sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+      }
     } catch {}
   }
   if (!sourceTitle) sourceTitle = cleanImportedText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1], 240);
@@ -3630,6 +3716,8 @@ function discoverStoreAssets(html, pageUrl) {
     sourceDescription,
     sourcePrice,
     sourceCurrency,
+    ratingValue,
+    ratingCount,
   };
 }
 
@@ -3731,7 +3819,7 @@ async function sendNewsletterConfirmation(subscriber) {
 
 function buildDealAlertContent(offers) {
   const cards = offers.slice(0, 8).map((offer) => {
-    const title = escapeHtml(getDisplayOfferTitle(offer));
+    const title = escapeHtml(hideCouponValue(getDisplayOfferTitle(offer), offer));
     const summary = escapeHtml(getOfferSummary(offer));
     const discount = escapeHtml(offer.discount || "New deal");
     const brand = escapeHtml(getOfferBrandName(offer));
@@ -3959,8 +4047,8 @@ function jsonLdScript(payload) {
 function dealStructuredData(offer) {
   const dealPath = getOfferDealPath(offer);
   const dealUrl = getAbsoluteUrl(dealPath);
-  const title = getDisplayOfferTitle(offer);
-  const description = getOfferSummary(offer) || "Review this coupon offer before visiting the partner website.";
+  const title = hideCouponValue(getDisplayOfferTitle(offer), offer);
+  const description = getStoreOfferDescription(offer, getOfferBrandName(offer));
   const validThrough = getValidOfferExpiry(offer) || undefined;
 
   return {
@@ -4009,7 +4097,8 @@ function dealStructuredData(offer) {
         "description": description,
         "url": dealUrl,
         "category": offer.category || "Coupon",
-        "availability": "https://schema.org/InStock",
+        "availability": "https://schema.org/OnlineOnly",
+        "identifier": offer.id,
         ...(validThrough ? { "validThrough": validThrough } : {}),
         "seller": {
           "@type": "Organization",
@@ -4072,17 +4161,40 @@ function getStoreCategoryProfile(group) {
   return inferredCategories.find(([, pattern]) => pattern.test(corpus))?.[0] || "Online Retail";
 }
 
+function getStoreMerchandiseDescription(group, storeRecord = {}) {
+  const verifiedDescription = String(storeRecord.merchandiseDescription || "").replace(/\s+/g, " ").trim();
+  const manualDescription = String(storeRecord.aboutStore || storeRecord.description || "").replace(/\s+/g, " ").trim();
+  const safeManualDescription = /\b(?:coupon codes?|promo codes?)\b.*\b(?:verified|updated|save)\b/i.test(manualDescription) ? "" : manualDescription;
+  const description = verifiedDescription || safeManualDescription;
+  const items = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).filter(Boolean).slice(0, 5);
+  if (!description && !items.length) {
+    return `${group.brand} has not published a merchandise description that AloCoupon can verify from its official website yet. Open the official store link to review its current catalog.`;
+  }
+  const itemSummary = description && items.length && !items.some((item) => description.toLowerCase().includes(String(item).toLowerCase()))
+    ? ` Products identified in the store's official catalog data include ${items.join(", ")}.`
+    : "";
+  return `${description || `${group.brand}'s official catalog data identifies ${items.join(", ")}.`}${itemSummary}`.trim();
+}
+
+function hideCouponValue(value, offer, replacement = "Coupon Code") {
+  const couponCode = isUsableCouponCode(offer?.code) ? String(offer.code).trim() : "";
+  let text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!couponCode || !text) return text;
+
+  const escapedCode = couponCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  text = text.replace(new RegExp(`\\b(?:coupon\\s+)?code\\s*[:#-]?\\s*${escapedCode}(?=$|[^a-z0-9])`, "gi"), replacement);
+  if (couponCode.length >= 4 && /[a-z]/i.test(couponCode)) {
+    text = text.replace(new RegExp(`(^|[^a-z0-9])${escapedCode}(?=$|[^a-z0-9])`, "gi"), `$1${replacement}`);
+  }
+  return text
+    .replace(new RegExp(`\\b${replacement.replace(/\s+/g, "\\s+")}\\s+${replacement.replace(/\s+/g, "\\s+")}\\b`, "gi"), replacement)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function getStoreOfferDescription(offer, brand) {
   const couponCode = isUsableCouponCode(offer.code) ? String(offer.code).trim() : '';
-  let source = String(offer.sourceDescription || offer.review || offer.title || "").replace(/\s+/g, " ").trim();
-  if (couponCode) {
-    const escapedCode = couponCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    source = source.replace(new RegExp(`\\b(?:coupon\\s+)?code\\s*[:#-]?\\s*${escapedCode}(?=$|[^a-z0-9])`, 'gi'), 'the coupon');
-    if (couponCode.length >= 4 && /[a-z]/i.test(couponCode)) {
-      source = source.replace(new RegExp(`(^|[^a-z0-9])${escapedCode}(?=$|[^a-z0-9])`, 'gi'), '$1the coupon');
-    }
-    source = source.replace(/\bthe coupon\s+the coupon\b/gi, 'the coupon').replace(/\s+/g, ' ').trim();
-  }
+  const source = hideCouponValue(offer.sourceDescription || offer.review || offer.title, offer, "the coupon");
   const discount = String(offer.discount || "a current promotion").trim();
   const category = String(offer.category || "").trim();
   const expiry = getValidOfferExpiry(offer);
@@ -4100,6 +4212,8 @@ function getStoreFaq(group) {
   const codeCount = group.items.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = group.items.length - codeCount;
   const datedOffers = group.items.filter(getValidOfferExpiry).length;
+  const merchandiseItems = (Array.isArray(group.store?.merchandiseItems) ? group.store.merchandiseItems : []).filter(Boolean).slice(0, 5);
+  const category = group.store?.category || getStoreCategoryProfile(group);
   return [
     {
       question: `How do I use a ${brand} coupon code?`,
@@ -4112,6 +4226,12 @@ function getStoreFaq(group) {
       answer: `AloCoupon currently lists ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} online ${dealCount === 1 ? "deal" : "deals"} for ${brand}. Each entry links to its original destination and keeps the source title or the original API description so shoppers can verify the scope and terms.`,
     },
     {
+      question: `Are the current ${brand} coupon codes still valid?`,
+      answer: datedOffers
+        ? `${datedOffers} ${brand} ${datedOffers === 1 ? "offer includes" : "offers include"} an expiration date supplied by the source. For every other offer, AloCoupon labels the expiration as not supplied instead of inventing a date. Always confirm that checkout accepts the code before placing the order.`
+        : `The current source records do not supply a confirmed expiration date for these ${brand} offers. AloCoupon therefore does not claim a made-up end date or publish validThrough for them. Open the offer, apply it at checkout, and confirm the saving before paying.`,
+    },
+    {
       question: `Why is my ${brand} coupon code not working?`,
       answer: `The code may be limited to selected products, require a minimum order, exclude sale items, or have expired. Check spelling and capitalization, confirm the cart meets the offer terms, and try another listed offer. ${datedOffers ? `${datedOffers} offers include a supplied expiration date.` : "The current source records do not include confirmed expiration dates, so the merchant checkout page is the final source of validity."}`,
     },
@@ -4121,16 +4241,139 @@ function getStoreFaq(group) {
         ? `${dealCount} current ${brand} ${dealCount === 1 ? "deal is" : "deals are"} listed without a coupon code. For these offers, select Get Deal and verify the sale price or automatic discount on the original website before completing the purchase.`
         : `All current ${brand} offers in the AloCoupon source records use coupon codes. Select Get Code, copy the code, and confirm that checkout accepts it before completing the purchase.`,
     },
+    {
+      question: `Can I combine more than one ${brand} coupon code?`,
+      answer: `AloCoupon's source records do not confirm that ${brand} allows coupon stacking. Most checkout systems accept one promo code per order, but the merchant's current terms control. Try the strongest eligible code first and compare the final total before paying.`,
+    },
+    {
+      question: `What does ${brand} sell?`,
+      answer: merchandiseItems.length
+        ? `${brand} is listed under ${category}. Products identified from the official store catalog include ${merchandiseItems.join(", ")}. Follow the official source link in the About section to check the latest selection and availability.`
+        : `${brand} is listed under ${category}. AloCoupon has not verified a detailed product list from the official site, so shoppers should use the official source link in the About section to review the current catalog.`,
+    },
   ];
 }
 
 function getStoreRating(group) {
-  const source = group.items.find((offer) => Number(offer.ratingValue) > 0 && Number(offer.ratingCount) > 0);
-  if (!source) return null;
+  const source = group.store || {};
+  const allowedSources = new Set(["store-jsonld", "yotpo-site-reviews", "judgeme-shop-reviews", "google-places"]);
+  const updatedAt = new Date(source.ratingUpdatedAt || 0).getTime();
+  const isFresh = Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt <= 45 * 24 * 60 * 60 * 1000;
+  if (!allowedSources.has(String(source.ratingSource || "")) || !isFresh || Number(source.ratingValue) <= 0 || Number(source.ratingCount) <= 0) return null;
   return {
     value: Math.min(5, Math.max(1, Number(source.ratingValue))),
     count: Math.max(1, Math.floor(Number(source.ratingCount))),
+    source: source.ratingSource,
+    sourceUrl: source.ratingSourceUrl,
   };
+}
+
+function readStoreUserRatings() {
+  ensureDataFile();
+  return readJsonArrayFile(storeUserRatingsFile)
+    .filter((record) => record && slugify(record.storeSlug))
+    .map((record) => ({
+      storeSlug: slugify(record.storeSlug),
+      votes: (Array.isArray(record.votes) ? record.votes : []).filter((vote) =>
+        /^[a-f0-9]{64}$/i.test(String(vote.fingerprint || "")) && Number.isInteger(Number(vote.rating)) && Number(vote.rating) >= 1 && Number(vote.rating) <= 5
+      ).map((vote) => ({
+        fingerprint: String(vote.fingerprint),
+        rating: Number(vote.rating),
+        createdAt: String(vote.createdAt || ""),
+        updatedAt: String(vote.updatedAt || vote.createdAt || ""),
+      })),
+    }));
+}
+
+function writeStoreUserRatings(records) {
+  ensureDataFile();
+  fs.writeFileSync(storeUserRatingsFile, JSON.stringify(records, null, 2));
+}
+
+function getStoreUserRating(groupOrSlug) {
+  const storeSlug = slugify(typeof groupOrSlug === "string"
+    ? groupOrSlug
+    : groupOrSlug?.store?.slug || getOfferStoreSlug(groupOrSlug?.brand));
+  const record = readStoreUserRatings().find((item) => item.storeSlug === storeSlug);
+  if (!record?.votes.length) return null;
+  const total = record.votes.reduce((sum, vote) => sum + vote.rating, 0);
+  return {
+    value: Math.round((total / record.votes.length) * 10) / 10,
+    count: record.votes.length,
+    source: "alocoupon-shoppers",
+    updatedAt: record.votes.map((vote) => vote.updatedAt).sort().at(-1) || "",
+  };
+}
+
+function getStoreRatingRequestKey(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function enforceStoreRatingRateLimit(req) {
+  const key = getStoreRatingRequestKey(req);
+  const now = Date.now();
+  const recent = (storeRatingRateLimits.get(key) || []).filter((time) => now - time < 60 * 60 * 1000);
+  if (recent.length >= 20) throw new Error("Too many rating attempts. Please try again later.");
+  recent.push(now);
+  storeRatingRateLimits.set(key, recent);
+}
+
+function saveStoreUserRating(group, req, payload) {
+  const rating = Number(payload.rating);
+  const visitorId = String(payload.visitorId || "").trim();
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be a whole number from 1 to 5.");
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(visitorId)) throw new Error("Your browser rating ID is invalid. Please refresh and try again.");
+  if (String(payload.website || "").trim()) return { rating: getStoreUserRating(group), updated: false };
+  enforceStoreRatingRateLimit(req);
+
+  const storeSlug = slugify(group.store?.slug || getOfferStoreSlug(group.brand));
+  const requestKey = getStoreRatingRequestKey(req);
+  const userAgent = String(req.headers["user-agent"] || "").slice(0, 300);
+  const fingerprint = crypto.createHmac("sha256", newsletterSecret)
+    .update(`${storeSlug}:${visitorId}:${requestKey}:${userAgent}`)
+    .digest("hex");
+  const records = readStoreUserRatings();
+  let record = records.find((item) => item.storeSlug === storeSlug);
+  if (!record) {
+    record = { storeSlug, votes: [] };
+    records.push(record);
+  }
+  const now = new Date().toISOString();
+  const existing = record.votes.find((vote) => vote.fingerprint === fingerprint);
+  const updated = Boolean(existing);
+  if (existing) {
+    existing.rating = rating;
+    existing.updatedAt = now;
+  } else {
+    record.votes.push({ fingerprint, rating, createdAt: now, updatedAt: now });
+  }
+  writeStoreUserRatings(records);
+  return { rating: getStoreUserRating(storeSlug), updated };
+}
+
+function renderStoreStars(rating, compact = false) {
+  if (!rating) return `<span class="store-rating-unavailable">No verified ratings yet</span>`;
+  const value = Math.min(5, Math.max(0, Number(rating.value) || 0));
+  const width = Math.round((value / 5) * 1000) / 10;
+  const label = `${value.toFixed(1)} out of 5 from ${rating.count.toLocaleString("en-US")} votes`;
+  const sourceLabels = {
+    "alocoupon-shoppers": "AloCoupon shoppers",
+    "google-places": "Google Maps",
+    "yotpo-site-reviews": "Yotpo",
+    "judgeme-shop-reviews": "Judge.me",
+    "store-jsonld": "Official store",
+  };
+  const sourceLabel = sourceLabels[rating.source] || "";
+  const attribution = sourceLabel
+    ? (rating.sourceUrl && rating.source !== "alocoupon-shoppers"
+      ? `<a class="google-rating-attribution" href="${escapeHtml(rating.sourceUrl)}" target="_blank" rel="noopener nofollow">${escapeHtml(sourceLabel)}</a>`
+      : `<span class="store-rating-source">${escapeHtml(sourceLabel)}</span>`)
+    : "";
+  return `<div class="store-star-widget${compact ? " is-compact" : ""}" aria-label="${escapeHtml(label)}">
+    <div class="store-star-meter" aria-hidden="true"><span>★★★★★</span><span class="store-star-fill" style="width:${width}%">★★★★★</span></div>
+    <div class="store-star-meta"><strong>${value.toFixed(1)}</strong><span>/ 5</span><i>/</i><span>${rating.count.toLocaleString("en-US")} votes</span></div>
+    ${attribution}
+  </div>`;
 }
 
 function getRelatedStoreGroups(group, limit = 6) {
@@ -4150,7 +4393,7 @@ function storeStructuredData(group) {
   const category = getStoreCategoryProfile(group);
   const description = `Compare verified ${group.brand} coupon codes and ${category.toLowerCase()} deals, with source-linked offer details, eligibility notes, and expiration information when supplied.`;
   const faqs = getStoreFaq(group);
-  const rating = getStoreRating(group);
+  const rating = getStoreUserRating(group);
 
   return {
     "@context": "https://schema.org",
@@ -4160,6 +4403,21 @@ function storeStructuredData(group) {
         "@id": `${siteUrl}/#organization`,
         "name": "AloCoupon",
         "url": getAbsoluteUrl("/"),
+      },
+      {
+        "@type": "Organization",
+        "@id": `${storeUrl}#merchant`,
+        "name": group.brand,
+        ...(group.store?.sourceUrl ? { "url": group.store.sourceUrl } : {}),
+        ...(rating ? {
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": rating.value,
+            "ratingCount": rating.count,
+            "bestRating": 5,
+            "worstRating": 1,
+          },
+        } : {}),
       },
       {
         "@type": "BreadcrumbList",
@@ -4191,17 +4449,8 @@ function storeStructuredData(group) {
         "name": title,
         "description": description,
         "url": storeUrl,
-        "about": category,
+        "about": { "@id": `${storeUrl}#merchant` },
         "keywords": `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${category} discounts`,
-        ...(rating ? {
-          "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": rating.value,
-            "ratingCount": rating.count,
-            "bestRating": 5,
-            "worstRating": 1,
-          },
-        } : {}),
         "isPartOf": {
           "@id": `${siteUrl}/#website`,
         },
@@ -4217,9 +4466,11 @@ function storeStructuredData(group) {
             "item": {
               "@type": "Offer",
               "url": getAbsoluteUrl(getOfferDealPath(offer)),
-              "name": String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(),
+              "name": hideCouponValue(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim(), offer),
               "description": getStoreOfferDescription(offer, group.brand),
               "category": String(offer.category && !/^other$/i.test(offer.category) ? offer.category : category),
+              "availability": "https://schema.org/OnlineOnly",
+              "identifier": offer.id,
               ...(validThrough ? { "validThrough": validThrough } : {}),
               "seller": { "@type": "Organization", "name": group.brand },
             },
@@ -4501,6 +4752,11 @@ function adminPage(adminEmail = "") {
           <form class="cms-editor-form cms-store-editor" id="store-editor-form">
             <input name="id" type="hidden" />
             <input name="sourceTitle" type="hidden" />
+            <input name="ratingValue" type="hidden" />
+            <input name="ratingCount" type="hidden" />
+            <input name="ratingSource" type="hidden" />
+            <input name="ratingSourceUrl" type="hidden" />
+            <input name="ratingUpdatedAt" type="hidden" />
             <input name="productImage" type="hidden" />
             <div class="cms-field-row"><label for="store-name">Tên store</label><input id="store-name" name="name" type="text" placeholder="Tên store" required /></div>
             <div class="cms-field-row"><label for="store-slug">Slug</label><input id="store-slug" name="slug" type="text" placeholder="store-slug" required /></div>
@@ -5337,6 +5593,44 @@ function adminPage(adminEmail = "") {
       showToast("Đã export danh mục.");
     });
 
+    const refreshStoreListButton = document.querySelector("#refresh-store-list-btn");
+    const syncStoreRatingsButton = document.createElement("button");
+    syncStoreRatingsButton.className = "cms-btn cms-btn-primary";
+    syncStoreRatingsButton.id = "sync-store-ratings-btn";
+    syncStoreRatingsButton.type = "button";
+    syncStoreRatingsButton.textContent = "★ Sync rating Store";
+    refreshStoreListButton.before(syncStoreRatingsButton);
+    let storeRatingPollTimer = null;
+
+    async function refreshStoreRatingSyncStatus(showResult = false) {
+      const res = await fetch("/api/admin/stores/sync-ratings/status");
+      const state = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const running = state.status === "running";
+      syncStoreRatingsButton.disabled = running;
+      syncStoreRatingsButton.textContent = running ? "Đang đồng bộ rating..." : "★ Sync rating Store";
+      if (running && !storeRatingPollTimer) storeRatingPollTimer = setInterval(() => refreshStoreRatingSyncStatus(true), 4000);
+      if (!running && storeRatingPollTimer) {
+        clearInterval(storeRatingPollTimer);
+        storeRatingPollTimer = null;
+        await loadOffers();
+        if (showResult) showToast(state.status === "completed" ? (state.summary || "Đã đồng bộ rating Store.") : (state.error || "Đồng bộ rating thất bại."));
+      }
+    }
+
+    syncStoreRatingsButton.addEventListener("click", async () => {
+      syncStoreRatingsButton.disabled = true;
+      const res = await fetch("/api/admin/stores/sync-ratings", { method: "POST" });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 409) {
+        syncStoreRatingsButton.disabled = false;
+        return showToast(result.error || "Không thể bắt đầu đồng bộ rating.");
+      }
+      showToast(result.message || "Đã bắt đầu đồng bộ rating Store.");
+      refreshStoreRatingSyncStatus(true);
+    });
+    refreshStoreRatingSyncStatus(false);
+
     document.querySelectorAll(".coupon-search-btn").forEach((button) => button.addEventListener("click", () => {
       if (button.dataset.list === "store") renderStoreManager();
       if (button.dataset.list === "offer") renderOfferManager();
@@ -5428,6 +5722,11 @@ function adminPage(adminEmail = "") {
       storeEditorForm.elements.event.value = item.event || 'Uncategorized';
       storeEditorForm.elements.sourceUrl.value = item.sourceUrl || '';
       storeEditorForm.elements.sourceTitle.value = item.sourceTitle || '';
+      storeEditorForm.elements.ratingValue.value = Number(item.ratingValue || 0);
+      storeEditorForm.elements.ratingCount.value = Number(item.ratingCount || 0);
+      storeEditorForm.elements.ratingSource.value = item.ratingSource || '';
+      storeEditorForm.elements.ratingSourceUrl.value = item.ratingSourceUrl || '';
+      storeEditorForm.elements.ratingUpdatedAt.value = item.ratingUpdatedAt || '';
       storeEditorForm.elements.productImage.value = item.productImage || '';
       storeEditorForm.elements.image.value = item.image || '';
       storeEditorForm.elements.approved.checked = item.approved !== false;
@@ -5495,6 +5794,11 @@ function adminPage(adminEmail = "") {
         storeEditorForm.elements.image.value = assets.logo || storeEditorForm.elements.image.value;
         storeEditorForm.elements.productImage.value = assets.productImage || '';
         storeEditorForm.elements.sourceTitle.value = assets.sourceTitle || '';
+        storeEditorForm.elements.ratingValue.value = Number(assets.ratingValue || 0);
+        storeEditorForm.elements.ratingCount.value = Number(assets.ratingCount || 0);
+        storeEditorForm.elements.ratingSource.value = assets.ratingValue && assets.ratingCount ? 'store-jsonld' : '';
+        storeEditorForm.elements.ratingSourceUrl.value = assets.ratingValue && assets.ratingCount ? (assets.sourceUrl || sourceUrl) : '';
+        storeEditorForm.elements.ratingUpdatedAt.value = assets.ratingValue && assets.ratingCount ? new Date().toISOString() : '';
         if (!storeEditorForm.elements.name.value && assets.sourceTitle) storeEditorForm.elements.name.value = assets.sourceTitle.split(/[|–—-]/)[0].trim();
         if (!storeEditorForm.elements.slug.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
         if (!storeEditorForm.elements.description.value) storeEditorForm.elements.description.value = assets.sourceDescription || '';
@@ -6263,15 +6567,16 @@ function redirectToOfferAffiliate(offer, res) {
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
   const brand = escapeHtml(getOfferBrandName(offer));
-  const title = escapeHtml(getDisplayOfferTitle(offer));
+  const title = escapeHtml(hideCouponValue(getDisplayOfferTitle(offer), offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");
   const validExpiry = getValidOfferExpiry(offer);
-  const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
-  const review = escapeHtml(getOfferSummary(offer) || "Review this offer before visiting the partner website.");
-  const code = escapeHtml(offer.code || "No code needed");
-  const hasCode = Boolean(String(offer.code || "").trim());
-  const safeAffiliateLink = escapeHtml(affiliateLink);
+  const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
+  const review = escapeHtml(getStoreOfferDescription(offer, getOfferBrandName(offer)));
+  const hasCode = isUsableCouponCode(offer.code);
+  const offerId = escapeHtml(offer.id);
+  const safeAffiliateLink = escapeHtml(getAloCouponTrackingUrl(affiliateLink));
+  const storePath = escapeHtml(getOfferStorePath(getOfferBrandName(offer)));
   const dealUrl = escapeHtml(getAbsoluteUrl(getOfferDealPath(offer)));
   const structuredData = jsonLdScript(dealStructuredData(offer));
   const siteSettings = readSiteSettings();
@@ -6325,14 +6630,32 @@ function dealPage(offer) {
           <span>${hasCode ? "Coupon code available" : "Affiliate deal"}</span>
         </div>
         <p>${review}</p>
-        <div class="deal-landing-code">${code}</div>
+        <div class="deal-landing-code" data-code-output>${hasCode ? "Code hidden until you click Get Code" : "No coupon code needed"}</div>
         <div class="deal-landing-actions">
-          <a href="${safeAffiliateLink}" rel="sponsored noopener">Open Affiliate Link</a>
-          <a class="secondary" href="/">Back to AloCoupon</a>
+          <a href="${safeAffiliateLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Open Deal"}</a>
+          <a class="secondary" href="${storePath}">Back to ${brand} coupons</a>
         </div>
       </div>
     </section>
   </main>
+  ${hasCode ? `<script>
+    (() => {
+      const link = document.querySelector('[data-reveal-code]');
+      const output = document.querySelector('[data-code-output]');
+      link.addEventListener('click', async () => {
+        output.textContent = 'Loading code…';
+        try {
+          const response = await fetch('/api/offers/' + encodeURIComponent(link.dataset.offerId) + '/code', { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Coupon code is unavailable.');
+          output.textContent = result.code;
+          if (navigator.clipboard) navigator.clipboard.writeText(result.code).catch(() => {});
+        } catch (error) {
+          output.textContent = error.message || 'Coupon code is unavailable.';
+        }
+      });
+    })();
+  <\/script>` : ""}
 </body>
 </html>`;
 }
@@ -6358,7 +6681,9 @@ function storePage(group) {
   const storePath = `/store/${encodeURIComponent(storeRecord.slug || getOfferStoreSlug(group.brand))}`;
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
   const categoryProfile = storeRecord.category || getStoreCategoryProfile(group);
-  const description = escapeHtml(storeRecord.metaDescription || storeRecord.description || `Compare ${group.items.length} verified ${group.brand} coupon codes and ${categoryProfile.toLowerCase()} deals. Review code requirements, product scope, source details, and expiration dates when supplied.`);
+  const merchandiseDescription = getStoreMerchandiseDescription(group, storeRecord);
+  const heroDescription = String(storeRecord.merchandiseDescription || merchandiseDescription).replace(/\s+/g, " ").trim();
+  const description = escapeHtml(storeRecord.metaDescription || merchandiseDescription);
   const structuredData = jsonLdScript(storeStructuredData(group));
   const codeCount = visibleItems.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = visibleItems.length - codeCount;
@@ -6371,8 +6696,10 @@ function storePage(group) {
   const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
   const latestTime = Math.max(...group.items.map((offer) => new Date(offer.createdAt || 0).getTime()).filter(Number.isFinite), 0);
   const updatedLabel = latestTime ? new Date(latestTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Recently";
-  const sourceDescriptions = [...new Set(group.items.map((offer) => String(offer.sourceDescription || offer.review || "").trim()).filter(Boolean))];
-  const aboutCopy = escapeHtml(storeRecord.aboutStore || storeRecord.description || sourceDescriptions.slice(0, 4).join(" ") || `The current ${group.brand} records cover ${categoryProfile.toLowerCase()} promotions available through the store's original website.`);
+  const aboutCopy = escapeHtml(storeRecord.aboutStore || merchandiseDescription);
+  const merchandiseSourceUrl = escapeHtml(storeRecord.merchandiseSourceUrl || "");
+  const merchandiseSourceDate = new Date(storeRecord.merchandiseUpdatedAt || 0);
+  const merchandiseSourceLabel = Number.isNaN(merchandiseSourceDate.getTime()) ? "" : merchandiseSourceDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const howToApplyCopy = escapeHtml(storeRecord.howToApply || '');
   const storeCategory = escapeHtml(categoryProfile);
   const customFaqs = String(storeRecord.faqs || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
@@ -6380,34 +6707,40 @@ function storePage(group) {
     return lines.length > 1 ? { question: lines[0], answer: lines.slice(1).join(' ') } : null;
   }).filter(Boolean);
   const faqs = customFaqs.length ? customFaqs : getStoreFaq(group);
-  const rating = getStoreRating(group);
+  const shopperRating = getStoreUserRating(group);
+  const externalRating = getStoreRating(group);
+  const rating = shopperRating || externalRating;
+  const ratingStoreSlug = escapeHtml(storeRecord.slug || getOfferStoreSlug(group.brand));
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
-  const productCoverage = visibleItems.slice(0, 8).map((offer) => `<li><a href="${escapeHtml(getOfferDealPath(offer))}">${escapeHtml(String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim())}</a><span>${escapeHtml(offer.discount || "Deal")}</span></li>`).join("");
+  const verifiedMerchandiseItems = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).slice(0, 8);
+  const productCoverage = verifiedMerchandiseItems.map((item) => `<li><strong>${escapeHtml(item)}</strong><span>Official store data</span></li>`).join("");
   const offerRows = visibleItems.map((offer) => {
-    const sourceTitle = String(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer)).trim();
+    const sourceTitle = hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer);
     const sourceSummary = getStoreOfferDescription(offer, group.brand);
     const title = escapeHtml(sourceTitle);
     const summary = escapeHtml(sourceSummary);
     const discount = escapeHtml(formatStoreDiscount(offer.discount));
     const hasCode = isUsableCouponCode(offer.code);
-    const code = escapeHtml(hasCode ? offer.code : "No code needed");
     const typeLabel = hasCode ? "Coupon code" : "Online deal";
     const validExpiry = getValidOfferExpiry(offer);
-    const expiry = escapeHtml(validExpiry ? new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Expiry not provided");
+    const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
     const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const offerId = escapeHtml(offer.id);
+    const detailPath = escapeHtml(getOfferDealPath(offer));
     const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
     return `
-      <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount} ${code}`.toLowerCase())}">
+      <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount}`.toLowerCase())}">
         <div class="brand-offer-discount"><strong>${discount}</strong><span>${hasCode ? "COUPON" : "DEAL"}</span></div>
         <div class="brand-offer-content">
-          <div class="brand-offer-meta"><span class="offer-type-dot"></span>${typeLabel}<span>•</span><span>${expiry}</span><span class="verified-label">✓ Verified</span></div>
+          <div class="brand-offer-meta">Verified ${hasCode ? "Code" : "Deal"}</div>
           <h2>${title}</h2>
           <p>${summary}</p>
           <small class="brand-source-note">Source: original product link${sourcePrice ? ` &middot; ${sourcePrice}` : ""} &middot; ${expiry}</small>
+          <a class="brand-offer-details" href="${detailPath}">View offer details</a>
         </div>
-        <div class="brand-offer-side">
-          <a class="brand-offer-action" href="${safeLink}" data-code="${hasCode ? code : ""}" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
+        <div class="brand-offer-side${hasCode ? " has-code" : ""}">
+          <a class="brand-offer-action" href="${safeLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
         </div>
       </article>
     `;
@@ -6511,8 +6844,18 @@ function storePage(group) {
     .store-reference-sidebar .brand-logo-shell { border-radius: 2px; height: 150px; width: 100%; }
     .store-reference-sidebar .brand-identity h2 { font-size: 1.35rem; margin: 0 0 5px; overflow-wrap: anywhere; }
     .store-reference-sidebar .brand-eyebrow { justify-content: center; }
-    .brand-rating { color: #f2b600; font-size: .88rem; font-weight: 900; margin: 7px 0 0; }
-    .brand-rating span { color: #738491; font-size: .72rem; font-weight: 700; }
+    .brand-rating { margin: 9px 0 0; }
+    .store-star-widget { align-items: flex-start; display: flex; flex-direction: column; gap: 7px; }
+    .store-star-widget.is-compact { align-items: center; }
+    .store-star-meter { color: #a8afb4; display: inline-block; font-size: 1.7rem; letter-spacing: .06em; line-height: 1; position: relative; white-space: nowrap; }
+    .store-star-fill { color: #f5a000; left: 0; overflow: hidden; position: absolute; top: 0; white-space: nowrap; }
+    .store-star-meta { align-items: center; color: #7c8790; display: flex; font-size: .78rem; gap: 6px; }
+    .store-star-meta strong { color: #6c7780; font-size: inherit; }
+    .store-star-meta i { color: #b1b8bd; font-style: normal; }
+    .google-rating-attribution { color: #4285f4; font-size: .7rem; font-weight: 800; text-decoration: none; }
+    .google-rating-attribution:hover { text-decoration: underline; }
+    .store-rating-source { color: #738491; font-size: .7rem; font-weight: 800; }
+    .store-rating-unavailable { color: #738491; font-size: .74rem; font-weight: 700; }
     .store-reference-sidebar .brand-best-box { background: transparent; padding: 0; width: 100%; }
     .store-reference-sidebar .brand-best-box a { background: #079d13; border-radius: 3px; }
     .store-stats-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; box-shadow: 0 2px 9px rgba(0,0,0,.06); padding: 18px; }
@@ -6530,6 +6873,8 @@ function storePage(group) {
     .store-reference-content .brand-offer-discount { background: #effaec; border: 1px dashed #86ca79; border-radius: 2px; color: #16810b; }
     .store-reference-content .brand-offer-action { background: #079d13; border-radius: 3px; font-size: .9rem; }
     .brand-source-note, .brand-code-preview { color: #8a969e; display: block; font-size: .68rem; }
+    .brand-offer-details { color: #087dbd; display: inline-block; font-size: .72rem; font-weight: 800; margin-top: 8px; text-decoration: none; }
+    .brand-offer-details:hover { text-decoration: underline; }
     .store-about-card, .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { background: #fff; border: 1px solid #e0e4e7; border-radius: 3px; margin-top: 28px; padding: 26px; }
     .store-about-card h2, .store-how-card h2, .store-faq-card h2, .store-rating-card h2, .store-related-card h2 { font-size: 1.5rem; margin: 0 0 20px; }
     .store-about-card h3 { font-size: 1rem; margin: 20px 0 6px; }
@@ -6542,34 +6887,154 @@ function storePage(group) {
     .store-product-coverage { display: grid; gap: 8px; list-style: none; margin: 12px 0 0; padding: 0; }
     .store-product-coverage li { align-items: center; border-bottom: 1px solid #e8ecef; display: flex; gap: 15px; justify-content: space-between; padding: 9px 0; }
     .store-product-coverage a { color: #174d6b; font-size: .84rem; font-weight: 750; text-decoration: none; }
+    .store-product-coverage strong { color: #174d6b; font-size: .84rem; font-weight: 750; }
     .store-product-coverage span { color: #07825a; flex: 0 0 auto; font-size: .75rem; font-weight: 850; }
+    .store-merchandise-source { color: #75858f; display: block; font-size: .74rem; margin-top: 9px; }
+    .store-merchandise-source a { color: #087dbd; font-weight: 800; }
     .store-faq-card > p, .store-related-card > p, .store-rating-empty p { color: #586a76; font-size: .86rem; line-height: 1.65; }
     .store-faq-list details { border-top: 1px solid #e1e6e9; padding: 15px 0; }
     .store-faq-list summary { color: #183d54; cursor: pointer; font-size: .92rem; font-weight: 850; }
     .store-faq-list details p { color: #586a76; font-size: .84rem; line-height: 1.65; margin: 10px 0 0; }
-    .store-rating-score { align-items: center; display: flex; flex-wrap: wrap; gap: 11px; }
-    .store-rating-score strong { font-size: 2rem; }
-    .store-rating-score span { color: #f2b600; letter-spacing: .08em; }
-    .store-rating-score small { color: #667786; width: 100%; }
+    .store-rating-score { align-items: center; display: flex; justify-content: center; padding: 8px 0; text-align: center; }
+    .store-rating-score .store-star-meter { font-size: 2rem; }
     .store-rating-empty { background: #f7f9fa; border-left: 4px solid #94a5af; padding: 14px 17px; }
     .store-rating-empty p { margin: 6px 0 0; }
+    .store-rating-form { border-top: 1px solid #e1e6e9; margin-top: 20px; padding-top: 20px; text-align: center; }
+    .store-rating-form fieldset { border: 0; margin: 0; padding: 0; }
+    .store-rating-form legend { color: #183d54; font-size: .92rem; font-weight: 850; margin: 0 auto 10px; }
+    .store-rating-buttons { display: inline-flex; flex-direction: row-reverse; justify-content: center; }
+    .store-rating-buttons button { background: transparent; border: 0; color: #b8bec3; cursor: pointer; font-size: 2.3rem; line-height: 1; padding: 3px; transition: color .15s ease, transform .15s ease; }
+    .store-rating-buttons button:hover, .store-rating-buttons button:hover ~ button, .store-rating-buttons button:focus-visible, .store-rating-buttons button:focus-visible ~ button, .store-rating-buttons button.is-selected, .store-rating-buttons button.is-selected ~ button { color: #f5a000; transform: translateY(-1px); }
+    .store-rating-status { color: #5c6d78; font-size: .8rem; min-height: 1.2em; }
+    .store-rating-status.is-success { color: #07825a; font-weight: 800; }
+    .store-rating-status.is-error { color: #b42318; font-weight: 800; }
+    .store-rating-policy { color: #75858f; font-size: .74rem; line-height: 1.5; margin: 8px auto 0; max-width: 620px; }
+    .store-rating-honeypot { height: 1px; left: -10000px; overflow: hidden; position: absolute; width: 1px; }
     .store-related-card > div { display: grid; gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .store-related-card > div a { align-items: center; border: 1px solid #e1e6e9; color: #174d6b; display: flex; font-size: .84rem; font-weight: 800; justify-content: space-between; padding: 12px; text-decoration: none; }
     .store-related-card > div span { color: #738491; font-size: .7rem; font-weight: 700; }
+    /* Store layout parity with the supplied reference, using AloCoupon branding and live data. */
+    body { background: #f4f4f4; border-top: 13px solid #54393d; color: #292929; font-family: Arial, Helvetica, sans-serif; }
+    .brand-topbar { background: #f4f4f4; border: 0; height: 83px; }
+    .brand-topbar-inner { gap: 138px; height: 83px; max-width: 1125px; padding: 16px 0; }
+    .brand-site-logo { align-items: center; display: flex; flex: 0 0 155px; gap: 8px; height: 50px; }
+    .brand-site-logo img { height: 42px; object-fit: contain; width: 42px; }
+    .brand-site-logo strong { color: #075b8b; font-size: 21px; font-style: italic; letter-spacing: -.8px; white-space: nowrap; }
+    .brand-site-logo strong span { color: #00a10a; }
+    .brand-back-link { display: none; }
+    .store-page-search { box-shadow: 0 12px 22px rgba(0, 0, 0, .12); flex: 1; margin: 0; max-width: none; }
+    .store-page-search input { background: #fff; border: 1px solid #cfd5dc; border-radius: 4px 0 0 4px; color: #586b7b; font-size: 20px; height: 50px; padding: 0 16px; }
+    .store-page-search button { align-items: center; background: #eef1f4; border: 1px solid #cfd5dc; border-left: 0; color: #102f46; display: flex; height: 50px; justify-content: center; padding: 0; width: 84px; }
+    .store-page-search button svg { fill: none; height: 20px; stroke: currentColor; stroke-linecap: round; stroke-width: 2.2; width: 20px; }
+    .brand-page { max-width: 1412px; padding: 46px 0 72px; }
+    .brand-breadcrumb { display: none; }
+    .store-reference-layout { gap: 24px; grid-template-columns: 307px minmax(0, 967px); }
+    .store-reference-sidebar { gap: 8px; top: 14px; }
+    .store-reference-sidebar .brand-hero { background: #fff; border: 0; border-radius: 0; box-shadow: 0 2px 7px rgba(0,0,0,.08); height: 340px; min-height: 0; padding: 34px 38px 18px; }
+    .store-reference-sidebar .brand-hero-main { gap: 10px; }
+    .store-reference-sidebar .brand-logo-shell { border: 0; box-shadow: none; height: 112px; padding: 0; width: 100%; }
+    .store-reference-sidebar .brand-logo-shell img { object-fit: contain; transform: none; }
+    .store-reference-sidebar .brand-logo-fallback { background: #fff; color: #24415c; }
+    .store-reference-sidebar .brand-eyebrow, .store-reference-sidebar .brand-domain { display: none; }
+    .store-reference-sidebar .brand-identity h2 { color: #009d08; font-size: 16px; font-weight: 400; margin: 4px 0 10px; }
+    .brand-rating { margin: 0; }
+    .store-star-meter { font-size: 27px; }
+    .store-rate-button { background: #fff2d9; border-radius: 4px; color: #f5a000; display: inline-block; font-size: 13px; margin-top: 9px; padding: 5px 15px; text-decoration: none; }
+    .store-reference-sidebar .brand-best-box { margin-top: 5px; }
+    .store-reference-sidebar .brand-best-box a { background: #fff; border: 1px solid #009d08; border-radius: 4px; color: #008c07; font-family: Arial, Helvetica, sans-serif; font-size: 16px; padding: 9px 10px; }
+    .store-stats-card { border: 0; border-radius: 0; box-shadow: 0 2px 7px rgba(0,0,0,.08); height: 160px; min-height: 0; padding: 18px 16px; }
+    .store-stats-card > strong { display: inline; font-size: 14px; line-height: 1.5; text-align: left; }
+    .store-stats-card > strong + strong { display: none; }
+    .store-stats-card div { border: 0; font-size: 14px; margin-top: 14px; padding: 0; }
+    .store-stats-card div b { color: #262626; font-weight: 400; }
+    .store-reference-content > h1 { color: #303030; font-size: 29px; font-weight: 500; line-height: 1.2; margin: 3px 0 20px; }
+    .store-reference-content > .brand-copy { color: #2e2e2e; display: block; font-size: 16px; line-height: 1.45; margin-bottom: 25px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .store-reference-content .brand-offers-head { background: transparent; border: 0; margin: 0 0 18px; }
+    .store-reference-content .brand-offer-tools { gap: 14px; }
+    .store-reference-content .brand-offer-search { display: none; }
+    .store-reference-content .brand-filter { background: #fff; border: 0; border-radius: 5px; color: #009408; font-family: Arial, Helvetica, sans-serif; font-size: 16px; height: 40px; min-width: 87px; padding: 0 18px; }
+    .store-reference-content .brand-filter.is-active { background: #009d08; border: 0; color: #fff; }
+    .brand-offer-list { gap: 9px; }
+    .store-reference-content .brand-offer-card { align-items: stretch; border: 0; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,.12); gap: 0; grid-template-columns: 105px minmax(0, 1fr) 180px; min-height: 136px; padding: 13px 20px 13px 0; }
+    .store-reference-content .brand-offer-card:hover { border: 0; box-shadow: 0 3px 8px rgba(0,0,0,.15); transform: none; }
+    .store-reference-content .brand-offer-discount { background: #fff; border: 0; border-right: 1px solid #e7e7e7; border-radius: 0; color: #009d08; min-height: 100%; padding: 10px 12px; }
+    .store-reference-content .brand-offer-discount strong { font-size: 23px; line-height: 1.35; }
+    .store-reference-content .brand-offer-discount span { display: none; }
+    .brand-offer-content { align-self: center; min-width: 0; padding: 0 8px; }
+    .brand-offer-meta { color: #009d08; font-size: 16px; font-weight: 500; margin: 0 0 24px; text-transform: none; }
+    .offer-type-dot, .verified-label { display: none; }
+    .brand-offer-card h2 { color: #252525; font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0 0 22px; }
+    .brand-offer-card p { color: #8190a0; display: -webkit-box; font-size: 14px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.35; margin: 0; overflow: hidden; white-space: normal; }
+    .brand-source-note { display: none; }
+    .brand-offer-side { align-items: center; align-self: center; display: flex; justify-content: flex-end; position: relative; }
+    .brand-offer-side.has-code::after { align-items: center; border: 2px dashed #00a20a; border-radius: 3px; color: #00a20a; content: "CODE"; display: flex; font-size: 12px; font-weight: 800; height: 40px; justify-content: flex-end; padding-right: 4px; position: absolute; right: 0; width: 54px; }
+    .store-reference-content .brand-offer-action { background: #009d08; border-radius: 4px; color: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 16px; height: 40px; padding: 0; position: relative; width: 180px; z-index: 1; }
+    .brand-offer-side.has-code .brand-offer-action { clip-path: polygon(0 0, 93% 0, 86% 50%, 93% 100%, 0 100%); margin-right: 9px; width: 180px; }
+    .brand-offer-action span { display: none; }
+    .store-about-card { background: transparent; border: 0; margin-top: 28px; padding: 0; }
+    .store-about-card > h2 { color: #262626; font-size: 24px; margin: 0 0 14px; }
+    .store-about-body { background: #f7f7f7; border: 1px solid #cfd2d4; padding: 16px; }
+    .store-about-body h3:first-child { color: #28333b; margin-top: 0; }
+    .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { border-radius: 0; }
+    .coupon-reveal-modal[hidden] { display: none; }
+    .coupon-reveal-modal { align-items: center; background: rgba(20, 31, 38, .72); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 1000; }
+    .coupon-reveal-dialog { background: #fff; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.28); max-width: 470px; padding: 28px; position: relative; text-align: center; width: 100%; }
+    .coupon-reveal-dialog h2 { color: #24313a; margin: 0 32px 8px; }
+    .coupon-reveal-dialog p { color: #687985; line-height: 1.5; }
+    .coupon-reveal-code { align-items: center; background: #f4fbf4; border: 2px dashed #079d13; color: #087d10; display: flex; font-size: 1.35rem; font-weight: 900; justify-content: center; letter-spacing: .05em; margin: 18px 0; min-height: 62px; padding: 10px; word-break: break-all; }
+    .coupon-reveal-copy { background: #079d13; border: 0; border-radius: 4px; color: #fff; cursor: pointer; font-size: .95rem; font-weight: 850; padding: 11px 20px; }
+    .coupon-reveal-close { background: transparent; border: 0; color: #6f7e87; cursor: pointer; font-size: 1.8rem; line-height: 1; position: absolute; right: 14px; top: 10px; }
+    .coupon-reveal-note { font-size: .75rem; margin-bottom: 0; }
     @media (max-width: 880px) { .store-reference-layout { grid-template-columns: 220px minmax(0, 1fr); } .store-reference-sidebar .brand-logo-shell { height: 120px; } .store-page-search { margin-left: 30px; } .store-reference-content .brand-offer-card { grid-template-columns: 84px minmax(0, 1fr); } }
     @media (max-width: 680px) { .brand-topbar-inner { align-items: stretch; flex-direction: column; gap: 12px; } .store-page-search { margin: 0; max-width: none; } .store-reference-layout { display: block; } .store-reference-sidebar { position: static; } .store-reference-sidebar .brand-hero-main { display: grid; grid-template-columns: 92px 1fr; text-align: left; } .store-reference-sidebar .brand-logo-shell { height: 92px; width: 92px; } .store-reference-sidebar .brand-eyebrow { justify-content: flex-start; } .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; } .store-stats-card { margin: 14px 0 24px; } .store-reference-content .brand-offer-tools { width: 100%; } .store-reference-content .brand-offer-search { display: none; } .store-reference-content .brand-offer-card { grid-template-columns: 76px minmax(0, 1fr); } .store-steps { grid-template-columns: 1fr; } .store-steps article { border-bottom: 1px solid #e1e5e8; border-right: 0; padding: 0 0 18px; } }
     @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
     @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 14px; grid-template-columns: 88px 1fr; } .brand-logo-shell { border-radius: 16px; height: 88px; padding: 7px; width: 88px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
+    @media (max-width: 680px) {
+      html, body { max-width: 100%; width: 100%; }
+      body { border-top-width: 8px; }
+      .brand-topbar { height: auto; }
+      .brand-topbar-inner { gap: 10px; height: auto; max-width: 100vw; padding: 12px 16px; width: 100vw; }
+      .brand-site-logo { flex-basis: auto; }
+      .store-page-search { display: flex; flex: none; max-width: calc(100vw - 32px); min-width: 0; width: calc(100vw - 32px); }
+      .store-page-search input { min-width: 0; width: 1px; }
+      .store-page-search button { flex: 0 0 56px; }
+      .store-page-search input { font-size: 16px; height: 44px; }
+      .store-page-search button { height: 44px; width: 56px; }
+      .brand-page { max-width: 100vw; padding: 18px 16px 50px; width: 100vw; }
+      .store-reference-layout, .store-reference-sidebar, .store-reference-content { max-width: calc(100vw - 32px); min-width: 0; width: calc(100vw - 32px); }
+      .store-reference-sidebar .brand-hero, .store-stats-card { max-width: 100%; width: 100%; }
+      .store-reference-sidebar .brand-hero { height: auto; padding: 20px; }
+      .store-reference-sidebar .brand-hero-main { align-items: center; grid-template-columns: 82px minmax(0, 1fr); }
+      .store-reference-sidebar .brand-logo-shell { height: 82px; width: 82px; }
+      .store-reference-sidebar .brand-identity { text-align: left; }
+      .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; }
+      .store-star-widget.is-compact { align-items: flex-start; }
+      .store-stats-card { height: auto; min-height: 160px; width: 100%; }
+      .store-reference-content > h1 { font-size: 24px; margin-top: 26px; max-width: 100%; overflow-wrap: anywhere; white-space: normal; word-break: break-word; }
+      .store-reference-content > .brand-copy { white-space: normal; }
+      .store-reference-content .brand-offer-tools { display: flex; gap: 10px; overflow-x: auto; width: 100%; }
+      .store-reference-content .brand-filter { flex: 0 0 auto; min-width: 96px; }
+      .store-reference-content .brand-offer-card { gap: 0; grid-template-columns: 72px minmax(0, 1fr); padding: 14px 12px 14px 0; }
+      .store-reference-content .brand-offer-discount { grid-row: 1; }
+      .brand-offer-content { padding-left: 10px; }
+      .brand-offer-meta { margin-bottom: 12px; }
+      .brand-offer-card h2 { margin-bottom: 0; }
+      .brand-offer-card p { display: none; }
+      .brand-offer-side { grid-column: 1 / -1; margin-top: 12px; width: 100%; }
+      .store-reference-content .brand-offer-action, .brand-offer-side.has-code .brand-offer-action { margin-right: 0; width: 100%; }
+      .brand-offer-side.has-code::after { right: 0; }
+      .store-about-body { padding: 14px; }
+    }
   </style>
 </head>
 <body>
   ${analyticsBody}
   <header class="brand-topbar">
     <div class="brand-topbar-inner">
-      <a class="brand-site-logo" href="/">Alo<span>Coupon</span></a>
+      <a class="brand-site-logo" href="/" aria-label="AloCoupon home"><img src="/assets/alocoupon-logo.svg" alt="" /><strong>Alo<span>Coupon</span></strong></a>
       <form class="store-page-search" action="/" method="get">
         <input name="q" type="search" placeholder="Search Stores" aria-label="Search stores" />
-        <button type="submit">Search</button>
+        <button type="submit" aria-label="Search stores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg></button>
       </form>
       <a class="brand-back-link" href="/#stores">← Explore all stores</a>
     </div>
@@ -6588,7 +7053,8 @@ function storePage(group) {
           <p class="brand-eyebrow"><i></i> Verified store</p>
           <h2>${brand}</h2>
           <p class="brand-domain">${domain}</p>
-          <p class="brand-rating">${rating ? `★★★★★ <span>${rating.value.toFixed(1)} from ${rating.count} ratings</span>` : `<span>No customer ratings yet</span>`}</p>
+          <div class="brand-rating">${renderStoreStars(rating, true)}</div>
+          <a class="store-rate-button" href="#store-rating">Rate it</a>
         </div>
         <div class="brand-best-box">
           <a href="${affiliateLink}" rel="sponsored noopener">Get Coupon Alert</a>
@@ -6596,7 +7062,7 @@ function storePage(group) {
           </div>
         </section>
         <section class="store-stats-card">
-          <strong>${codeCount} Coupon Codes</strong><strong>${group.items.length} Verified Offers</strong>
+          <strong>${codeCount} ${codeCount === 1 ? "Coupon" : "Coupons"}, ${group.items.length} Verified ${group.items.length === 1 ? "Coupon" : "Coupons"}</strong>
           <div><span>Coupon Codes</span><b>${codeCount}</b></div>
           <div><span>Deals</span><b>${dealCount}</b></div>
           <div><span>Best Offer</span><b>${bestOffer}</b></div>
@@ -6604,7 +7070,7 @@ function storePage(group) {
       </aside>
       <section class="store-reference-content">
         <h1>${brand} Coupons and Promo Codes</h1>
-        <p class="brand-copy">${escapeHtml(storeRecord.description || `Compare ${visibleItems.length} verified ${group.brand} coupon codes, promo codes, and ${categoryProfile} discounts. Product names, eligibility notes, and descriptions below come from the original product link or AloCoupon's source API record.`)} Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
+        <p class="brand-copy">${escapeHtml(heroDescription)}</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
@@ -6620,16 +7086,18 @@ function storePage(group) {
     </section>
     <p class="brand-empty" hidden>No offers match your search.</p>
     <section class="store-about-card">
-      <h2>About ${brand} coupons and deals</h2>
-      <h3>What ${brand} sells</h3>
+      <h2>About store</h2>
+      <div class="store-about-body">
+      <h3>About ${brand}</h3>
       <p>${aboutCopy}</p>
+      ${merchandiseSourceUrl ? `<small class="store-merchandise-source">Source: <a href="${merchandiseSourceUrl}" target="_blank" rel="noopener nofollow">official store website</a>${merchandiseSourceLabel ? ` &middot; extracted ${escapeHtml(merchandiseSourceLabel)}` : ""}</small>` : `<small class="store-merchandise-source">No verified merchandise source is currently available.</small>`}
       <p>Based on the offers currently available through AloCoupon, ${brand} is listed in <strong>${storeCategory}</strong>. This page contains ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} code-free ${dealCount === 1 ? "deal" : "deals"}. The strongest listed saving is ${bestOffer}, and the records were last checked on ${updatedLabel}. The merchant domain connected to these offers is ${domain}.</p>
-      <h3>Current product and promotion coverage</h3>
-      <ul class="store-product-coverage">${productCoverage}</ul>
+      ${productCoverage ? `<h3>Products found in official catalog data</h3><ul class="store-product-coverage">${productCoverage}</ul>` : ""}
       <h3>How AloCoupon verifies ${brand} offers</h3>
       <p>Each offer keeps its original destination URL and source wording. AloCoupon separates coupon codes from automatic deals, records the advertised saving, and displays a confirmed expiration date only when the source data supplies a valid date. If a date is missing, the page says “Expiry not provided” instead of using an unsupported countdown label.</p>
       <h3>What to check before buying</h3>
       <p>Open the original product page and confirm eligible items, minimum-spend rules, regional restrictions, shipping costs, exclusions, and the final checkout total. Prices and availability can change after AloCoupon's last check, so the merchant checkout remains the final source for purchase terms.</p>
+      </div>
     </section>
     <section class="store-how-card">
       <h2>How to apply ${brand} coupon codes</h2>
@@ -6645,11 +7113,24 @@ function storePage(group) {
       <p>These answers reflect the ${group.items.length} offers and expiration fields currently stored for ${brand}.</p>
       <div class="store-faq-list">${faqRows}</div>
     </section>
-    <section class="store-rating-card">
+    <section class="store-rating-card" id="store-rating" data-store-slug="${ratingStoreSlug}">
       <h2>${brand} shopper rating</h2>
-      ${rating
-        ? `<div class="store-rating-score"><strong>${rating.value.toFixed(1)}</strong><span>★★★★★</span><small>${rating.count} customer ratings</small></div>`
-        : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>AloCoupon has no verified customer rating records for ${brand}, so no AggregateRating schema is published. This avoids showing an unsupported score in search results.</p></div>`}
+      <div class="store-rating-summary">
+        ${shopperRating
+          ? `<div class="store-rating-score">${renderStoreStars(shopperRating, true)}</div>`
+          : `<div class="store-rating-empty"><strong>Not rated yet</strong><p>Be the first AloCoupon shopper to rate ${brand}. No AggregateRating schema is published until a real rating is submitted.</p></div>`}
+      </div>
+      <form class="store-rating-form">
+        <fieldset>
+          <legend>How useful was your shopping experience with ${brand}?</legend>
+          <div class="store-rating-buttons" role="radiogroup" aria-label="Rate ${brand} from 1 to 5 stars">
+            ${[5, 4, 3, 2, 1].map((value) => `<button type="button" data-rating="${value}" role="radio" aria-checked="false" aria-label="${value} star${value === 1 ? "" : "s"}">★</button>`).join("")}
+          </div>
+          <label class="store-rating-honeypot">Leave this field empty<input name="website" tabindex="-1" autocomplete="off" /></label>
+        </fieldset>
+        <p class="store-rating-status" role="status" aria-live="polite">Choose a star to submit or update your rating.</p>
+        <p class="store-rating-policy">Ratings are collected directly on AloCoupon. One rating is kept per browser and network fingerprint; no imported Google, Yotpo, Judge.me, or merchant-site score is used in AloCoupon's AggregateRating.</p>
+      </form>
     </section>
     <nav class="store-related-card" aria-label="Related coupon stores">
       <h2>Explore related coupon stores</h2>
@@ -6659,6 +7140,16 @@ function storePage(group) {
       </section>
     </div>
     <p class="brand-trust-note"><strong>✓ Verified</strong> · Affiliate links may earn AloCoupon a commission at no extra cost to you.</p>
+    <div class="coupon-reveal-modal" hidden role="dialog" aria-modal="true" aria-labelledby="coupon-reveal-title">
+      <div class="coupon-reveal-dialog">
+        <button class="coupon-reveal-close" type="button" aria-label="Close coupon dialog">×</button>
+        <h2 id="coupon-reveal-title">Your coupon code</h2>
+        <p>The merchant website opened in a new tab. Copy this code and apply it at checkout.</p>
+        <div class="coupon-reveal-code" aria-live="polite">Loading code…</div>
+        <button class="coupon-reveal-copy" type="button">Copy code</button>
+        <p class="coupon-reveal-note">Availability and eligibility are controlled by the merchant. Confirm the discount before paying.</p>
+      </div>
+    </div>
   </main>
   <script>
     (() => {
@@ -6683,10 +7174,91 @@ function storePage(group) {
         applyFilters();
       }));
       search.addEventListener('input', applyFilters);
-      document.querySelectorAll('.brand-offer-action[data-code]').forEach((link) => link.addEventListener('click', () => {
-        const code = link.dataset.code;
-        if (code && navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+      const couponModal = document.querySelector('.coupon-reveal-modal');
+      const couponCode = couponModal && couponModal.querySelector('.coupon-reveal-code');
+      const couponCopy = couponModal && couponModal.querySelector('.coupon-reveal-copy');
+      const closeCouponModal = () => {
+        if (couponModal) couponModal.hidden = true;
+      };
+      if (couponModal) {
+        couponModal.querySelector('.coupon-reveal-close').addEventListener('click', closeCouponModal);
+        couponModal.addEventListener('click', (event) => { if (event.target === couponModal) closeCouponModal(); });
+        document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeCouponModal(); });
+        couponCopy.addEventListener('click', async () => {
+          const code = couponCode.dataset.code || '';
+          if (!code) return;
+          try {
+            await navigator.clipboard.writeText(code);
+            couponCopy.textContent = 'Copied!';
+          } catch {
+            window.getSelection().selectAllChildren(couponCode);
+            couponCopy.textContent = 'Select and copy the code';
+          }
+        });
+      }
+      document.querySelectorAll('.brand-offer-action[data-reveal-code]').forEach((link) => link.addEventListener('click', async () => {
+        couponModal.hidden = false;
+        couponCode.textContent = 'Loading code…';
+        couponCode.dataset.code = '';
+        couponCopy.textContent = 'Copy code';
+        try {
+          const response = await fetch('/api/offers/' + encodeURIComponent(link.dataset.offerId) + '/code', { cache: 'no-store' });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Coupon code is unavailable.');
+          couponCode.textContent = result.code;
+          couponCode.dataset.code = result.code;
+          if (navigator.clipboard) navigator.clipboard.writeText(result.code).catch(() => {});
+        } catch (error) {
+          couponCode.textContent = error.message || 'Coupon code is unavailable.';
+        }
       }));
+      const ratingCard = document.querySelector('.store-rating-card[data-store-slug]');
+      if (ratingCard) {
+        const ratingButtons = [...ratingCard.querySelectorAll('[data-rating]')];
+        const ratingStatus = ratingCard.querySelector('.store-rating-status');
+        const ratingSummary = ratingCard.querySelector('.store-rating-summary');
+        const getVisitorId = () => {
+          try {
+            let id = localStorage.getItem('alocoupon_rating_visitor_id');
+            if (!id) {
+              id = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'visitor_' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+              localStorage.setItem('alocoupon_rating_visitor_id', id);
+            }
+            return id;
+          } catch {
+            return 'session_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+          }
+        };
+        ratingButtons.forEach((button) => button.addEventListener('click', async () => {
+          const selected = Number(button.dataset.rating);
+          ratingButtons.forEach((item) => {
+            const active = item === button;
+            item.classList.toggle('is-selected', active);
+            item.setAttribute('aria-checked', active ? 'true' : 'false');
+            item.disabled = true;
+          });
+          ratingStatus.className = 'store-rating-status';
+          ratingStatus.textContent = 'Saving your rating...';
+          try {
+            const response = await fetch('/api/stores/' + encodeURIComponent(ratingCard.dataset.storeSlug) + '/rating', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ rating: selected, visitorId: getVisitorId(), website: ratingCard.querySelector('[name="website"]').value }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Could not save your rating.');
+            const width = Math.round((Number(result.rating.value) / 5) * 1000) / 10;
+            ratingSummary.innerHTML = '<div class="store-rating-score"><div class="store-star-widget is-compact" aria-label="' + Number(result.rating.value).toFixed(1) + ' out of 5 from ' + Number(result.rating.count).toLocaleString('en-US') + ' votes"><div class="store-star-meter" aria-hidden="true"><span>★★★★★</span><span class="store-star-fill" style="width:' + width + '%">★★★★★</span></div><div class="store-star-meta"><strong>' + Number(result.rating.value).toFixed(1) + '</strong><span>/ 5</span><i>/</i><span>' + Number(result.rating.count).toLocaleString('en-US') + ' votes</span></div><span class="store-rating-source">AloCoupon shoppers</span></div></div>';
+            ratingStatus.className = 'store-rating-status is-success';
+            ratingStatus.textContent = result.updated ? 'Your rating was updated.' : 'Thank you. Your rating was recorded.';
+          } catch (error) {
+            ratingStatus.className = 'store-rating-status is-error';
+            ratingStatus.textContent = error.message || 'Could not save your rating.';
+          } finally {
+            ratingButtons.forEach((item) => { item.disabled = false; });
+          }
+        }));
+      }
     })();
   </script>
 </body>
@@ -6792,6 +7364,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const publicStoreRatingMatch = url.pathname.match(/^\/api\/stores\/([^/]+)\/rating$/);
+    if (publicStoreRatingMatch && (req.method === "GET" || req.method === "POST")) {
+      const group = findStoreGroupBySlug(decodeURIComponent(publicStoreRatingMatch[1]));
+      if (!group) return sendJson(res, 404, { error: "Store not found." });
+      if (req.method === "GET") return sendJson(res, 200, { rating: getStoreUserRating(group) });
+      const payload = JSON.parse(await readBody(req, 10_000));
+      const result = saveStoreUserRating(group, req, payload);
+      sendJson(res, 200, result);
+      return;
+    }
+
     const dealMatch = url.pathname.match(/^\/deal\/([^/]+)$/);
     if (req.method === "GET" && dealMatch) {
       const offer = findOfferByDealSlug(decodeURIComponent(dealMatch[1]));
@@ -6800,7 +7383,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      redirectToOfferAffiliate(offer, res);
+      send(res, 200, dealPage(offer), "text/html; charset=utf-8");
       return;
     }
 
@@ -6902,7 +7485,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/api/offers") {
-      sendJson(res, 200, readOffers());
+      const offers = readOffers();
+      sendJson(res, 200, isAuthenticated(req) ? offers : offers.map((offer) => {
+        const { code, ...publicOffer } = offer;
+        return { ...publicOffer, hasCode: isUsableCouponCode(code) };
+      }));
+      return;
+    }
+
+    const publicOfferCodeMatch = url.pathname.match(/^\/api\/offers\/([^/]+)\/code$/);
+    if (req.method === "GET" && publicOfferCodeMatch) {
+      const offerId = decodeURIComponent(publicOfferCodeMatch[1]);
+      const offer = readOffers().find((item) => item.id === offerId && item.visible !== false);
+      if (!offer || !isUsableCouponCode(offer.code)) return sendJson(res, 404, { error: "Coupon code is unavailable." });
+      send(res, 200, JSON.stringify({ code: String(offer.code).trim() }), "application/json; charset=utf-8", {
+        "Cache-Control": "no-store, private",
+      });
       return;
     }
 
@@ -6940,6 +7538,19 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/admin/stores') {
       if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
       sendJson(res, 200, readStores());
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/admin/stores/sync-ratings/status') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      sendJson(res, 200, storeRatingSyncState);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/admin/stores/sync-ratings') {
+      if (!isAuthenticated(req)) return sendJson(res, 401, { error: 'Admin login required.' });
+      if (!startStoreRatingSync('admin')) return sendJson(res, 409, { error: 'Store rating sync is already running.', state: storeRatingSyncState });
+      sendJson(res, 202, { message: 'Store rating sync started.', state: storeRatingSyncState });
       return;
     }
 
@@ -7332,6 +7943,15 @@ server.listen(port, host, () => {
     exec(`start "" "${publicUrl}"`);
   }
 });
+
+if (process.env.DISABLE_STORE_RATING_SYNC !== "1") {
+  const firstStoreRatingSync = setTimeout(() => {
+    startStoreRatingSync("scheduled");
+    const dailyStoreRatingSync = setInterval(() => startStoreRatingSync("scheduled"), 24 * 60 * 60 * 1000);
+    dailyStoreRatingSync.unref();
+  }, 5 * 60 * 1000);
+  firstStoreRatingSync.unref();
+}
 
 server.on("error", (error) => {
   console.error("Khong the chay server.");

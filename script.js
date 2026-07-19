@@ -313,13 +313,22 @@ async function copyCoupon(code) {
   input.remove();
 }
 
+async function fetchCouponCode(offerId) {
+  const response = await fetch(`/api/offers/${encodeURIComponent(offerId)}/code`, { cache: "no-store" });
+  const result = await response.json();
+  if (!response.ok || !isUsableCouponCode(result.code)) throw new Error(result.error || "Coupon code is unavailable.");
+  return result.code;
+}
+
 function bindCouponButton(button) {
   button.addEventListener("click", async () => {
-    const code = button.dataset.code || "";
+    let code = button.dataset.code || "";
+    const offerId = button.dataset.offerId || "";
+    const hasCode = button.dataset.hasCode === "true" || isUsableCouponCode(code);
     const safeLink = button.dataset.link || "#";
     const originalLabel = button.textContent;
 
-    if (!isUsableCouponCode(code)) {
+    if (!hasCode) {
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
@@ -327,7 +336,9 @@ function bindCouponButton(button) {
       return;
     }
 
+    if (safeLink !== "#") window.open(safeLink, "_blank", "noopener");
     try {
+      if (offerId) code = await fetchCouponCode(offerId);
       await copyCoupon(code);
       button.textContent = button.classList.contains("claim-btn") ? t("copiedLabel") : "Copied";
       button.setAttribute("aria-label", `Copied coupon code ${code}`);
@@ -336,12 +347,8 @@ function bindCouponButton(button) {
       window.setTimeout(() => {
         button.textContent = button.dataset.i18n ? t(button.dataset.i18n) : originalLabel;
       }, 2200);
-    } catch {
-      showToast(t("fallbackToast").replace("{code}", code));
-    } finally {
-      if (safeLink !== "#") {
-        openAffiliateLinkAfterDelay(safeLink);
-      }
+    } catch (error) {
+      showToast(error.message || "Coupon code is unavailable.");
     }
   });
 }
@@ -3408,12 +3415,16 @@ function isUsableCouponCode(code) {
   return Boolean(normalized && !["DEAL", "NO CODE", "NO-CODE"].includes(normalized));
 }
 
+function offerHasCode(item) {
+  return item?.hasCode === true || isUsableCouponCode(item?.code);
+}
+
 function getOfferKind(item) {
   const type = String(item?.type || "").trim().toLowerCase();
   if (type === "promotion" || type === "promo") {
     return "promotion";
   }
-  if (type === "deal" || !isUsableCouponCode(item?.code)) {
+  if (type === "deal" || !offerHasCode(item)) {
     return "deal";
   }
   return "code";
@@ -3470,11 +3481,10 @@ function getOfferBrandName(item) {
 function getDisplayOfferTitle(item) {
   const brand = getOfferBrandName(item);
   const discount = String(item?.discount || "").trim();
-  const code = String(item?.code || "").trim();
   const review = String(item?.review || item?.title || "").trim();
 
-  if (isUsableCouponCode(code)) {
-    return `${brand} Coupon Code ${code}${discount ? ` - ${discount}` : ""}`;
+  if (offerHasCode(item)) {
+    return `${brand} Coupon Code${discount ? ` - ${discount}` : ""}`;
   }
 
   if (discount) {
@@ -3513,7 +3523,7 @@ function groupOffersByBrand(items) {
 }
 
 function getBestOffer(items) {
-  return items.find((item) => isUsableCouponCode(item.code))?.discount || items[0]?.discount || "Best Deal";
+  return items.find(offerHasCode)?.discount || items[0]?.discount || "Best Deal";
 }
 
 function getDiscountScore(discount) {
@@ -3543,7 +3553,7 @@ function createAffiliateCard(item, index) {
   const category = escapeHtml(item.category);
   const expiry = escapeHtml(item.expiry || "No expiry note");
   const review = escapeHtml(getOfferSummary(item));
-  const hasCode = isUsableCouponCode(rawCode);
+  const hasCode = offerHasCode(item);
 
   article.innerHTML = `
     <div class="admin-offer-top">
@@ -3585,7 +3595,6 @@ function createUploadedDealCard(item, index) {
   const initials = escapeHtml(getStoreInitials(brandName));
   const title = escapeHtml(displayTitle);
   const rawCode = String(item.code || "").trim();
-  const code = escapeHtml(rawCode);
   const discount = escapeHtml(item.discount);
   const category = escapeHtml(item.category || "Deal");
   const expiry = escapeHtml(item.expiry || "Limited time");
@@ -3597,7 +3606,7 @@ function createUploadedDealCard(item, index) {
   const buttonLabel = getOfferButtonLabel(item);
   const mediaClasses = ["", "green", "amber"];
   const mediaClass = mediaClasses[index % mediaClasses.length];
-  const hasCode = isUsableCouponCode(rawCode);
+  const hasCode = offerHasCode(item);
   const offerType = hasCode ? "Coupon" : "Deal";
   const timingLabel = item.expiry ? expiry : "Active now";
   const uploadedAt = item.createdAt
@@ -3607,7 +3616,6 @@ function createUploadedDealCard(item, index) {
   article.dataset.searchable = [
     brand,
     title,
-    code,
     discount,
     category,
     expiry,
@@ -3641,10 +3649,10 @@ function createUploadedDealCard(item, index) {
       <h3><a class="deal-title-link" href="${detailLink}">${title}</a></h3>
       <p class="product-desc">${review}</p>
       <div class="deal-price-row">
-        <div class="price-line"><small>${hasCode ? `Code: ${code}` : timingLabel}</small><span>${discount}</span></div>
+        <div class="price-line"><small>${hasCode ? "Code hidden until click" : timingLabel}</small><span>${discount}</span></div>
         <button class="deal-favorite" type="button" aria-label="Save ${brand} deal" aria-pressed="false">♥</button>
       </div>
-      <button class="button button-primary claim-btn" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
+      <button class="button button-primary claim-btn" type="button" data-offer-id="${escapeHtml(item.id)}" data-has-code="${hasCode}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>
   `;
@@ -3703,46 +3711,17 @@ function getDiscountParts(discount) {
 }
 
 function bindStoreCouponAction(button) {
-  button.addEventListener("click", async () => {
-    const code = button.dataset.code || "";
-    const safeLink = button.dataset.link || "#";
-    const originalLabel = button.textContent;
-
-    if (!isUsableCouponCode(code)) {
-      if (safeLink !== "#") {
-        openAffiliateLinkAfterDelay(safeLink);
-      }
-      showToast("Opening affiliate link.");
-      return;
-    }
-
-    try {
-      await copyCoupon(code);
-      button.textContent = "Copied";
-      showToast(`Coupon code ${code} copied.`);
-      window.setTimeout(() => {
-        button.textContent = originalLabel;
-      }, 1800);
-    } catch {
-      showToast(`Coupon code: ${code}`);
-    } finally {
-      if (safeLink !== "#") {
-        openAffiliateLinkAfterDelay(safeLink);
-      }
-    }
-  });
+  bindCouponButton(button);
 }
 
 function createLiveCouponRow(item) {
   const article = document.createElement("article");
   article.className = "store-coupon-card";
-  const rawCode = String(item.code || "").trim();
   const kind = getOfferKind(item);
   const typeLabel = getOfferTypeLabel(item);
   const buttonLabel = getOfferButtonLabel(item);
   article.dataset.couponType = `${kind === "deal" ? "deal" : "code"} verified`;
 
-  const code = escapeHtml(rawCode);
   const safeLink = getAloCouponAffiliateUrl(item.link);
   const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
@@ -3760,7 +3739,7 @@ function createLiveCouponRow(item) {
       <h3><a class="deal-title-link" href="${safeLink}" target="_blank" rel="sponsored noopener">${title}</a></h3>
       <p>${review}</p>
     </div>
-    <button class="store-coupon-action" type="button" data-code="${code}" data-link="${safeLink}">${buttonLabel}</button>
+    <button class="store-coupon-action" type="button" data-offer-id="${escapeHtml(item.id)}" data-has-code="${offerHasCode(item)}" data-link="${safeLink}">${buttonLabel}</button>
   `;
 
   bindStoreCouponAction(article.querySelector(".store-coupon-action"));

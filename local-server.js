@@ -6536,6 +6536,7 @@ function storePage(group) {
   const storeUrl = escapeHtml(getAbsoluteUrl(storePath));
   const categoryProfile = storeRecord.category || getStoreCategoryProfile(group);
   const merchandiseDescription = getStoreMerchandiseDescription(group, storeRecord);
+  const heroDescription = String(storeRecord.merchandiseDescription || merchandiseDescription).replace(/\s+/g, " ").trim();
   const description = escapeHtml(storeRecord.metaDescription || merchandiseDescription);
   const structuredData = jsonLdScript(storeStructuredData(group));
   const codeCount = visibleItems.filter((offer) => isUsableCouponCode(offer.code)).length;
@@ -6582,12 +6583,12 @@ function storePage(group) {
       <article class="brand-offer-card" data-offer-type="${hasCode ? "code" : "deal"}" data-search="${escapeHtml(`${title} ${summary} ${discount}`.toLowerCase())}">
         <div class="brand-offer-discount"><strong>${discount}</strong><span>${hasCode ? "COUPON" : "DEAL"}</span></div>
         <div class="brand-offer-content">
-          <div class="brand-offer-meta"><span class="offer-type-dot"></span>${typeLabel}<span>•</span><span>${expiry}</span><span class="verified-label">✓ Verified</span></div>
+          <div class="brand-offer-meta">Verified ${hasCode ? "Code" : "Deal"}</div>
           <h2>${title}</h2>
           <p>${summary}</p>
           <small class="brand-source-note">Source: original product link${sourcePrice ? ` &middot; ${sourcePrice}` : ""} &middot; ${expiry}</small>
         </div>
-        <div class="brand-offer-side">
+        <div class="brand-offer-side${hasCode ? " has-code" : ""}">
           <a class="brand-offer-action" href="${safeLink}" data-code="${hasCode ? code : ""}" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
         </div>
       </article>
@@ -6747,20 +6748,119 @@ function storePage(group) {
     .store-related-card > div { display: grid; gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .store-related-card > div a { align-items: center; border: 1px solid #e1e6e9; color: #174d6b; display: flex; font-size: .84rem; font-weight: 800; justify-content: space-between; padding: 12px; text-decoration: none; }
     .store-related-card > div span { color: #738491; font-size: .7rem; font-weight: 700; }
+    /* Store layout parity with the supplied reference, using AloCoupon branding and live data. */
+    body { background: #f4f4f4; border-top: 13px solid #54393d; color: #292929; font-family: Arial, Helvetica, sans-serif; }
+    .brand-topbar { background: #f4f4f4; border: 0; height: 83px; }
+    .brand-topbar-inner { gap: 138px; height: 83px; max-width: 1125px; padding: 16px 0; }
+    .brand-site-logo { align-items: center; display: flex; flex: 0 0 155px; gap: 8px; height: 50px; }
+    .brand-site-logo img { height: 42px; object-fit: contain; width: 42px; }
+    .brand-site-logo strong { color: #075b8b; font-size: 21px; font-style: italic; letter-spacing: -.8px; white-space: nowrap; }
+    .brand-site-logo strong span { color: #00a10a; }
+    .brand-back-link { display: none; }
+    .store-page-search { box-shadow: 0 12px 22px rgba(0, 0, 0, .12); flex: 1; margin: 0; max-width: none; }
+    .store-page-search input { background: #fff; border: 1px solid #cfd5dc; border-radius: 4px 0 0 4px; color: #586b7b; font-size: 20px; height: 50px; padding: 0 16px; }
+    .store-page-search button { align-items: center; background: #eef1f4; border: 1px solid #cfd5dc; border-left: 0; color: #102f46; display: flex; height: 50px; justify-content: center; padding: 0; width: 84px; }
+    .store-page-search button svg { fill: none; height: 20px; stroke: currentColor; stroke-linecap: round; stroke-width: 2.2; width: 20px; }
+    .brand-page { max-width: 1412px; padding: 46px 0 72px; }
+    .brand-breadcrumb { display: none; }
+    .store-reference-layout { gap: 24px; grid-template-columns: 307px minmax(0, 967px); }
+    .store-reference-sidebar { gap: 8px; top: 14px; }
+    .store-reference-sidebar .brand-hero { background: #fff; border: 0; border-radius: 0; box-shadow: 0 2px 7px rgba(0,0,0,.08); height: 340px; min-height: 0; padding: 34px 38px 18px; }
+    .store-reference-sidebar .brand-hero-main { gap: 10px; }
+    .store-reference-sidebar .brand-logo-shell { border: 0; box-shadow: none; height: 112px; padding: 0; width: 100%; }
+    .store-reference-sidebar .brand-logo-shell img { object-fit: contain; transform: none; }
+    .store-reference-sidebar .brand-logo-fallback { background: #fff; color: #24415c; }
+    .store-reference-sidebar .brand-eyebrow, .store-reference-sidebar .brand-domain { display: none; }
+    .store-reference-sidebar .brand-identity h2 { color: #009d08; font-size: 16px; font-weight: 400; margin: 4px 0 10px; }
+    .brand-rating { margin: 0; }
+    .store-star-meter { font-size: 27px; }
+    .store-rate-button { background: #fff2d9; border-radius: 4px; color: #f5a000; display: inline-block; font-size: 13px; margin-top: 9px; padding: 5px 15px; text-decoration: none; }
+    .store-reference-sidebar .brand-best-box { margin-top: 5px; }
+    .store-reference-sidebar .brand-best-box a { background: #fff; border: 1px solid #009d08; border-radius: 4px; color: #008c07; font-family: Arial, Helvetica, sans-serif; font-size: 16px; padding: 9px 10px; }
+    .store-stats-card { border: 0; border-radius: 0; box-shadow: 0 2px 7px rgba(0,0,0,.08); height: 160px; min-height: 0; padding: 18px 16px; }
+    .store-stats-card > strong { display: inline; font-size: 14px; line-height: 1.5; text-align: left; }
+    .store-stats-card > strong + strong { display: none; }
+    .store-stats-card div { border: 0; font-size: 14px; margin-top: 14px; padding: 0; }
+    .store-stats-card div b { color: #262626; font-weight: 400; }
+    .store-reference-content > h1 { color: #303030; font-size: 29px; font-weight: 500; line-height: 1.2; margin: 3px 0 20px; }
+    .store-reference-content > .brand-copy { color: #2e2e2e; display: block; font-size: 16px; line-height: 1.45; margin-bottom: 25px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .store-reference-content .brand-offers-head { background: transparent; border: 0; margin: 0 0 18px; }
+    .store-reference-content .brand-offer-tools { gap: 14px; }
+    .store-reference-content .brand-offer-search { display: none; }
+    .store-reference-content .brand-filter { background: #fff; border: 0; border-radius: 5px; color: #009408; font-family: Arial, Helvetica, sans-serif; font-size: 16px; height: 40px; min-width: 87px; padding: 0 18px; }
+    .store-reference-content .brand-filter.is-active { background: #009d08; border: 0; color: #fff; }
+    .brand-offer-list { gap: 9px; }
+    .store-reference-content .brand-offer-card { align-items: stretch; border: 0; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,.12); gap: 0; grid-template-columns: 105px minmax(0, 1fr) 180px; min-height: 136px; padding: 13px 20px 13px 0; }
+    .store-reference-content .brand-offer-card:hover { border: 0; box-shadow: 0 3px 8px rgba(0,0,0,.15); transform: none; }
+    .store-reference-content .brand-offer-discount { background: #fff; border: 0; border-right: 1px solid #e7e7e7; border-radius: 0; color: #009d08; min-height: 100%; padding: 10px 12px; }
+    .store-reference-content .brand-offer-discount strong { font-size: 23px; line-height: 1.35; }
+    .store-reference-content .brand-offer-discount span { display: none; }
+    .brand-offer-content { align-self: center; min-width: 0; padding: 0 8px; }
+    .brand-offer-meta { color: #009d08; font-size: 16px; font-weight: 500; margin: 0 0 24px; text-transform: none; }
+    .offer-type-dot, .verified-label { display: none; }
+    .brand-offer-card h2 { color: #252525; font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0 0 22px; }
+    .brand-offer-card p { color: #8190a0; font-size: 14px; line-height: 1.35; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .brand-source-note { display: none; }
+    .brand-offer-side { align-items: center; align-self: center; display: flex; justify-content: flex-end; position: relative; }
+    .brand-offer-side.has-code::after { align-items: center; border: 2px dashed #00a20a; border-radius: 3px; color: #00a20a; content: "CODE"; display: flex; font-size: 12px; font-weight: 800; height: 40px; justify-content: flex-end; padding-right: 4px; position: absolute; right: 0; width: 54px; }
+    .store-reference-content .brand-offer-action { background: #009d08; border-radius: 4px; color: #fff; font-family: Arial, Helvetica, sans-serif; font-size: 16px; height: 40px; padding: 0; position: relative; width: 180px; z-index: 1; }
+    .brand-offer-side.has-code .brand-offer-action { clip-path: polygon(0 0, 93% 0, 86% 50%, 93% 100%, 0 100%); margin-right: 9px; width: 180px; }
+    .brand-offer-action span { display: none; }
+    .store-about-card { background: transparent; border: 0; margin-top: 28px; padding: 0; }
+    .store-about-card > h2 { color: #262626; font-size: 24px; margin: 0 0 14px; }
+    .store-about-body { background: #f7f7f7; border: 1px solid #cfd2d4; padding: 16px; }
+    .store-about-body h3:first-child { color: #28333b; margin-top: 0; }
+    .store-how-card, .store-faq-card, .store-rating-card, .store-related-card { border-radius: 0; }
     @media (max-width: 880px) { .store-reference-layout { grid-template-columns: 220px minmax(0, 1fr); } .store-reference-sidebar .brand-logo-shell { height: 120px; } .store-page-search { margin-left: 30px; } .store-reference-content .brand-offer-card { grid-template-columns: 84px minmax(0, 1fr); } }
     @media (max-width: 680px) { .brand-topbar-inner { align-items: stretch; flex-direction: column; gap: 12px; } .store-page-search { margin: 0; max-width: none; } .store-reference-layout { display: block; } .store-reference-sidebar { position: static; } .store-reference-sidebar .brand-hero-main { display: grid; grid-template-columns: 92px 1fr; text-align: left; } .store-reference-sidebar .brand-logo-shell { height: 92px; width: 92px; } .store-reference-sidebar .brand-eyebrow { justify-content: flex-start; } .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; } .store-stats-card { margin: 14px 0 24px; } .store-reference-content .brand-offer-tools { width: 100%; } .store-reference-content .brand-offer-search { display: none; } .store-reference-content .brand-offer-card { grid-template-columns: 76px minmax(0, 1fr); } .store-steps { grid-template-columns: 1fr; } .store-steps article { border-bottom: 1px solid #e1e5e8; border-right: 0; padding: 0 0 18px; } }
     @media (max-width: 880px) { .brand-hero-main { grid-template-columns: 112px 1fr; } .brand-logo-shell { height: 112px; width: 112px; } .brand-best-box { grid-column: 1 / -1; } .brand-offer-card { grid-template-columns: 100px minmax(0, 1fr); } .brand-offer-side { align-items: center; flex-direction: row; grid-column: 2; justify-content: space-between; text-align: left; } .brand-offer-action { min-width: 130px; } .brand-offers-head { align-items: stretch; flex-direction: column; } .brand-offer-tools { flex-wrap: wrap; } }
     @media (max-width: 620px) { .brand-topbar-inner, .brand-page { padding-left: 16px; padding-right: 16px; } .brand-page { padding-top: 18px; } .brand-hero { padding: 20px; } .brand-hero-main { align-items: start; gap: 14px; grid-template-columns: 88px 1fr; } .brand-logo-shell { border-radius: 16px; height: 88px; padding: 7px; width: 88px; } .brand-page h1 { font-size: 1.55rem; } .brand-copy { grid-column: 1 / -1; } .brand-stats { grid-template-columns: repeat(2, 1fr); row-gap: 18px; } .brand-stat { border: 0; padding: 0; } .brand-offer-tools { display: grid; grid-template-columns: repeat(3, 1fr); } .brand-offer-search { grid-column: 1 / -1; min-width: 0; width: 100%; } .brand-filter { padding-inline: 6px; } .brand-offer-card { gap: 14px; grid-template-columns: 76px 1fr; padding: 15px; } .brand-offer-discount { min-height: 76px; padding: 8px; } .brand-offer-discount strong { font-size: 1rem; } .brand-offer-card h2 { font-size: .94rem; } .brand-offer-card p { display: none; } .brand-offer-code-row { align-items: flex-start; flex-direction: column; gap: 5px; } .brand-offer-side { align-items: stretch; flex-direction: column; grid-column: 1 / -1; } .brand-offer-side small { display: none; } .brand-offer-action { width: 100%; } }
+    @media (max-width: 680px) {
+      html, body { max-width: 100%; width: 100%; }
+      body { border-top-width: 8px; }
+      .brand-topbar { height: auto; }
+      .brand-topbar-inner { gap: 10px; height: auto; max-width: 100vw; padding: 12px 16px; width: 100vw; }
+      .brand-site-logo { flex-basis: auto; }
+      .store-page-search { display: flex; flex: none; max-width: calc(100vw - 32px); min-width: 0; width: calc(100vw - 32px); }
+      .store-page-search input { min-width: 0; width: 1px; }
+      .store-page-search button { flex: 0 0 56px; }
+      .store-page-search input { font-size: 16px; height: 44px; }
+      .store-page-search button { height: 44px; width: 56px; }
+      .brand-page { max-width: 100vw; padding: 18px 16px 50px; width: 100vw; }
+      .store-reference-layout, .store-reference-sidebar, .store-reference-content { max-width: calc(100vw - 32px); min-width: 0; width: calc(100vw - 32px); }
+      .store-reference-sidebar .brand-hero, .store-stats-card { max-width: 100%; width: 100%; }
+      .store-reference-sidebar .brand-hero { height: auto; padding: 20px; }
+      .store-reference-sidebar .brand-hero-main { align-items: center; grid-template-columns: 82px minmax(0, 1fr); }
+      .store-reference-sidebar .brand-logo-shell { height: 82px; width: 82px; }
+      .store-reference-sidebar .brand-identity { text-align: left; }
+      .store-reference-sidebar .brand-best-box { grid-column: 1 / -1; }
+      .store-star-widget.is-compact { align-items: flex-start; }
+      .store-stats-card { height: auto; min-height: 160px; width: 100%; }
+      .store-reference-content > h1 { font-size: 24px; margin-top: 26px; max-width: 100%; overflow-wrap: anywhere; white-space: normal; word-break: break-word; }
+      .store-reference-content > .brand-copy { white-space: normal; }
+      .store-reference-content .brand-offer-tools { display: flex; gap: 10px; overflow-x: auto; width: 100%; }
+      .store-reference-content .brand-filter { flex: 0 0 auto; min-width: 96px; }
+      .store-reference-content .brand-offer-card { gap: 0; grid-template-columns: 72px minmax(0, 1fr); padding: 14px 12px 14px 0; }
+      .store-reference-content .brand-offer-discount { grid-row: 1; }
+      .brand-offer-content { padding-left: 10px; }
+      .brand-offer-meta { margin-bottom: 12px; }
+      .brand-offer-card h2 { margin-bottom: 0; }
+      .brand-offer-card p { display: none; }
+      .brand-offer-side { grid-column: 1 / -1; margin-top: 12px; width: 100%; }
+      .store-reference-content .brand-offer-action, .brand-offer-side.has-code .brand-offer-action { margin-right: 0; width: 100%; }
+      .brand-offer-side.has-code::after { right: 0; }
+      .store-about-body { padding: 14px; }
+    }
   </style>
 </head>
 <body>
   ${analyticsBody}
   <header class="brand-topbar">
     <div class="brand-topbar-inner">
-      <a class="brand-site-logo" href="/">Alo<span>Coupon</span></a>
+      <a class="brand-site-logo" href="/" aria-label="AloCoupon home"><img src="/assets/alocoupon-logo.svg" alt="" /><strong>Alo<span>Coupon</span></strong></a>
       <form class="store-page-search" action="/" method="get">
         <input name="q" type="search" placeholder="Search Stores" aria-label="Search stores" />
-        <button type="submit">Search</button>
+        <button type="submit" aria-label="Search stores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg></button>
       </form>
       <a class="brand-back-link" href="/#stores">← Explore all stores</a>
     </div>
@@ -6780,6 +6880,7 @@ function storePage(group) {
           <h2>${brand}</h2>
           <p class="brand-domain">${domain}</p>
           <div class="brand-rating">${renderStoreStars(rating, true)}</div>
+          <a class="store-rate-button" href="#store-rating">Rate it</a>
         </div>
         <div class="brand-best-box">
           <a href="${affiliateLink}" rel="sponsored noopener">Get Coupon Alert</a>
@@ -6787,7 +6888,7 @@ function storePage(group) {
           </div>
         </section>
         <section class="store-stats-card">
-          <strong>${codeCount} Coupon Codes</strong><strong>${group.items.length} Verified Offers</strong>
+          <strong>${codeCount} ${codeCount === 1 ? "Coupon" : "Coupons"}, ${group.items.length} Verified ${group.items.length === 1 ? "Coupon" : "Coupons"}</strong>
           <div><span>Coupon Codes</span><b>${codeCount}</b></div>
           <div><span>Deals</span><b>${dealCount}</b></div>
           <div><span>Best Offer</span><b>${bestOffer}</b></div>
@@ -6795,7 +6896,7 @@ function storePage(group) {
       </aside>
       <section class="store-reference-content">
         <h1>${brand} Coupons and Promo Codes</h1>
-        <p class="brand-copy">${escapeHtml(merchandiseDescription)} Browse more offers by <a href="/#categories">shopping category</a> or visit <a href="/#stores">all coupon stores</a>.</p>
+        <p class="brand-copy">${escapeHtml(heroDescription)}</p>
     <div class="brand-offers-head">
       <div><h2>Today's best ${brand} offers</h2><p>Every code and deal is reviewed before it appears here.</p></div>
       <div class="brand-offer-tools">
@@ -6811,8 +6912,9 @@ function storePage(group) {
     </section>
     <p class="brand-empty" hidden>No offers match your search.</p>
     <section class="store-about-card">
-      <h2>About ${brand} coupons and deals</h2>
-      <h3>What ${brand} sells</h3>
+      <h2>About store</h2>
+      <div class="store-about-body">
+      <h3>About ${brand}</h3>
       <p>${aboutCopy}</p>
       ${merchandiseSourceUrl ? `<small class="store-merchandise-source">Source: <a href="${merchandiseSourceUrl}" target="_blank" rel="noopener nofollow">official store website</a>${merchandiseSourceLabel ? ` &middot; extracted ${escapeHtml(merchandiseSourceLabel)}` : ""}</small>` : `<small class="store-merchandise-source">No verified merchandise source is currently available.</small>`}
       <p>Based on the offers currently available through AloCoupon, ${brand} is listed in <strong>${storeCategory}</strong>. This page contains ${codeCount} coupon ${codeCount === 1 ? "code" : "codes"} and ${dealCount} code-free ${dealCount === 1 ? "deal" : "deals"}. The strongest listed saving is ${bestOffer}, and the records were last checked on ${updatedLabel}. The merchant domain connected to these offers is ${domain}.</p>
@@ -6821,6 +6923,7 @@ function storePage(group) {
       <p>Each offer keeps its original destination URL and source wording. AloCoupon separates coupon codes from automatic deals, records the advertised saving, and displays a confirmed expiration date only when the source data supplies a valid date. If a date is missing, the page says “Expiry not provided” instead of using an unsupported countdown label.</p>
       <h3>What to check before buying</h3>
       <p>Open the original product page and confirm eligible items, minimum-spend rules, regional restrictions, shipping costs, exclusions, and the final checkout total. Prices and availability can change after AloCoupon's last check, so the merchant checkout remains the final source for purchase terms.</p>
+      </div>
     </section>
     <section class="store-how-card">
       <h2>How to apply ${brand} coupon codes</h2>
@@ -6836,7 +6939,7 @@ function storePage(group) {
       <p>These answers reflect the ${group.items.length} offers and expiration fields currently stored for ${brand}.</p>
       <div class="store-faq-list">${faqRows}</div>
     </section>
-    <section class="store-rating-card">
+    <section class="store-rating-card" id="store-rating">
       <h2>${brand} shopper rating</h2>
       ${rating
         ? `<div class="store-rating-score">${renderStoreStars(rating, true)}</div>`

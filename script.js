@@ -4272,7 +4272,7 @@ function renderPopularStores(items) {
   if (totalCount) totalCount.textContent = String(directoryStores.length);
   if (offerTotal) offerTotal.textContent = String(totalOffers);
 
-  const initialStoreLimit = 18;
+  const initialStoreLimit = directoryStores.length;
   let showAllStores = false;
 
   const updateStoreDirectory = () => {

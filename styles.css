@@ -5691,6 +5691,37 @@ body.teela-inspired-theme:not(.admin-mode) .feature-post-grid .read-link {
   text-decoration: none;
 }
 
+.feature-post-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 40px;
+}
+
+.feature-post-actions[hidden] {
+  display: none;
+}
+
+.view-all-articles {
+  min-height: 40px;
+  padding: 8px 14px;
+  color: #009fe3;
+  background: #fff;
+  border: 1px solid #00aeef;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.view-all-articles:hover,
+.view-all-articles:focus-visible {
+  color: #fff;
+  background: #00aeef;
+  box-shadow: 0 4px 12px rgba(0, 174, 239, 0.2);
+  outline: none;
+}
+
 body.teela-inspired-theme:not(.admin-mode) #categories {
   width: min(calc(100% - 40px), 1455px);
   max-width: 1455px;

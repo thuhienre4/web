@@ -3181,6 +3181,8 @@ let activeDealCategory = "all";
 let activeDealType = "all";
 let activeDealStore = "all";
 let lastAffiliateItems = [];
+let featurePostsExpanded = false;
+const FEATURE_POST_PREVIEW_LIMIT = 12;
 let activeDealPage = 0;
 let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
@@ -3652,6 +3654,7 @@ function createUploadedDealCard(item, index) {
         <div class="price-line"><small>${hasCode ? "Code hidden until click" : timingLabel}</small><span>${discount}</span></div>
         <button class="deal-favorite" type="button" aria-label="Save ${brand} deal" aria-pressed="false">♥</button>
       </div>
+      <a class="deal-detail-link" href="${detailLink}">Continue Reading</a>
       <button class="button button-primary claim-btn" type="button" data-offer-id="${escapeHtml(item.id)}" data-has-code="${hasCode}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>
@@ -3968,6 +3971,8 @@ function renderDealCategoryFilters(items) {
 function renderFeaturePost(items) {
   const section = document.querySelector("#feature-post");
   const grid = section?.querySelector("#feature-post-grid");
+  const actions = section?.querySelector("#feature-post-actions");
+  const viewAllButton = section?.querySelector("#view-all-articles");
   if (!section || !grid || !Array.isArray(items) || !items.length) return;
 
   const seenStores = new Set();
@@ -3976,9 +3981,12 @@ function renderFeaturePost(items) {
     if (!storeKey || seenStores.has(storeKey) || !(item.productImage || item.landingImage || item.logo)) return false;
     seenStores.add(storeKey);
     return true;
-  }).slice(0, 12);
+  });
+  const visibleItems = featurePostsExpanded
+    ? featuredItems
+    : featuredItems.slice(0, FEATURE_POST_PREVIEW_LIMIT);
 
-  grid.innerHTML = featuredItems.map((item) => {
+  grid.innerHTML = visibleItems.map((item) => {
     const brand = getOfferBrandName(item);
     const title = getDisplayOfferTitle(item);
     const summary = getOfferSummary(item);
@@ -4005,6 +4013,18 @@ function renderFeaturePost(items) {
       if (fallback && image.src !== new URL(fallback, window.location.href).href) image.src = fallback;
     });
   });
+
+  if (actions && viewAllButton) {
+    const hasMoreArticles = featuredItems.length > FEATURE_POST_PREVIEW_LIMIT;
+    actions.hidden = !hasMoreArticles;
+    viewAllButton.textContent = featurePostsExpanded ? "Show Fewer Articles" : "View All Articles";
+    viewAllButton.setAttribute("aria-expanded", String(featurePostsExpanded));
+    viewAllButton.onclick = () => {
+      featurePostsExpanded = !featurePostsExpanded;
+      renderFeaturePost(items);
+      if (!featurePostsExpanded) section.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+  }
 }
 
 async function renderUploadedDealsInMainGrid() {

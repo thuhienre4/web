@@ -4263,6 +4263,22 @@ body:not(.admin-mode) #deals .deal-content .claim-btn {
   font-weight: 500;
 }
 
+body:not(.admin-mode) #deals .deal-detail-link {
+  color: #087dbd;
+  font-size: 0.74rem;
+  font-weight: 750;
+  line-height: 1.3;
+  text-align: center;
+  text-decoration: none;
+}
+
+body:not(.admin-mode) #deals .deal-detail-link:hover,
+body:not(.admin-mode) #deals .deal-detail-link:focus-visible {
+  color: #075f91;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 body:not(.admin-mode) #deals .deal-content .claim-btn:hover {
   color: #fff;
   background: #087eb8;
@@ -5415,14 +5431,17 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
 }
 
 .teela-inspired-theme #deals .deal-grid {
-  display: flex !important;
+  display: grid !important;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 50px) / 6);
   gap: 10px;
   padding: 2px;
   overflow-x: auto;
 }
 
 .teela-inspired-theme #deals .deal-card {
-  flex: 0 0 calc((100% - 50px) / 6);
+  width: 100%;
   scroll-snap-align: start;
 }
 
@@ -5481,7 +5500,7 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
 @media (max-width: 980px) {
   .teela-inspired-theme .store-grid { gap: 22px; }
   .teela-inspired-theme .store-card { flex-basis: calc((100% - 88px) / 5); }
-  .teela-inspired-theme #deals .deal-card { flex-basis: calc((100% - 30px) / 4); }
+  .teela-inspired-theme #deals .deal-grid { grid-auto-columns: calc((100% - 30px) / 4); }
 }
 
 @media (max-width: 680px) {
@@ -5501,7 +5520,7 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
   .teela-inspired-theme .home-banner-arrow { top: 50%; }
   .teela-inspired-theme .store-grid { gap: 14px; }
   .teela-inspired-theme .store-card { flex-basis: calc((100% - 28px) / 3); }
-  .teela-inspired-theme #deals .deal-card { flex-basis: calc((100% - 10px) / 2); }
+  .teela-inspired-theme #deals .deal-grid { grid-auto-columns: calc((100% - 10px) / 2); }
   .carousel-arrow { width: 36px; height: 36px; font-size: 1.65rem; }
   .carousel-arrow-prev { left: -7px; }
   .carousel-arrow-next { right: -7px; }
@@ -5903,6 +5922,21 @@ body.teela-inspired-theme:not(.admin-mode) .store-grid {
   max-width: 100%;
 }
 
+body.teela-inspired-theme:not(.admin-mode) #deals .deal-grid {
+  display: grid !important;
+  grid-template-columns: none !important;
+  grid-template-rows: repeat(2, auto) !important;
+  grid-auto-flow: column !important;
+  grid-auto-columns: calc((100% - 50px) / 6);
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+body.teela-inspired-theme:not(.admin-mode) #deals .deal-card {
+  width: 100%;
+  height: 100%;
+}
+
 body.teela-inspired-theme:not(.admin-mode) .store-card {
   min-height: 0;
   flex: 0 0 calc((100% - 210px) / 7);
@@ -5952,6 +5986,9 @@ body.teela-inspired-theme:not(.admin-mode) .store-card h3 {
   body.teela-inspired-theme:not(.admin-mode) .store-card {
     flex-basis: calc((100% - 88px) / 5);
   }
+  body.teela-inspired-theme:not(.admin-mode) #deals .deal-grid {
+    grid-auto-columns: calc((100% - 30px) / 4);
+  }
 }
 
 @media (max-width: 680px) {
@@ -5969,6 +6006,9 @@ body.teela-inspired-theme:not(.admin-mode) .store-card h3 {
   }
   body.teela-inspired-theme:not(.admin-mode) .store-card {
     flex-basis: calc((100% - 28px) / 3);
+  }
+  body.teela-inspired-theme:not(.admin-mode) #deals .deal-grid {
+    grid-auto-columns: calc((100% - 10px) / 2);
   }
 }
 

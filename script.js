@@ -3652,6 +3652,7 @@ function createUploadedDealCard(item, index) {
         <div class="price-line"><small>${hasCode ? "Code hidden until click" : timingLabel}</small><span>${discount}</span></div>
         <button class="deal-favorite" type="button" aria-label="Save ${brand} deal" aria-pressed="false">♥</button>
       </div>
+      <a class="deal-detail-link" href="${detailLink}">Continue Reading</a>
       <button class="button button-primary claim-btn" type="button" data-offer-id="${escapeHtml(item.id)}" data-has-code="${hasCode}" data-link="${safeLink}">${buttonLabel}</button>
       <a class="product-link" href="${safeLink}" target="_blank" rel="sponsored noopener">Open</a>
     </div>

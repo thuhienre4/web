@@ -6568,11 +6568,20 @@ function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
   const brand = escapeHtml(getOfferBrandName(offer));
   const title = escapeHtml(hideCouponValue(getDisplayOfferTitle(offer), offer));
+  const productTitle = escapeHtml(hideCouponValue(offer.sourceTitle || offer.title || getDisplayOfferTitle(offer), offer));
   const discount = escapeHtml(offer.discount || "Best Deal");
   const category = escapeHtml(offer.category || "Deal");
   const validExpiry = getValidOfferExpiry(offer);
   const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
   const review = escapeHtml(getStoreOfferDescription(offer, getOfferBrandName(offer)));
+  const productImage = escapeHtml(offer.productImage || offer.landingImage || offer.logo || "");
+  const fallbackImage = escapeHtml(offer.landingImage || offer.logo || "");
+  const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" ") || "See current price at store");
+  const merchantDomain = escapeHtml(getOfferLogoHost(offer) || getOfferBrandName(offer));
+  const publishedDate = new Date(offer.createdAt || 0);
+  const publishedLabel = escapeHtml(Number.isNaN(publishedDate.getTime())
+    ? "Recently added"
+    : publishedDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }));
   const hasCode = isUsableCouponCode(offer.code);
   const offerId = escapeHtml(offer.id);
   const safeAffiliateLink = escapeHtml(getAloCouponTrackingUrl(affiliateLink));
@@ -6598,44 +6607,91 @@ function dealPage(offer) {
   ${analyticsHead}
   <link rel="stylesheet" href="/styles.css" />
   <style>
-    body { background: #f4fbf8; color: #1f2937; font-family: Arial, sans-serif; margin: 0; }
-    .deal-landing { margin: 0 auto; max-width: 960px; padding: 48px 20px; }
-    .deal-landing-card { background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(31, 41, 55, .12); display: grid; gap: 24px; grid-template-columns: 220px 1fr; padding: 28px; }
-    .deal-landing-badge { align-items: center; background: #1f2a44; border-radius: 10px; color: #fff; display: flex; flex-direction: column; font-weight: 800; justify-content: center; min-height: 180px; text-align: center; }
-    .deal-landing-badge span { color: #6ee7b7; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
-    .deal-landing-badge strong { font-size: 30px; }
-    .deal-landing h1 { font-size: 34px; line-height: 1.1; margin: 8px 0 14px; }
+    * { box-sizing: border-box; }
+    body { background: #f4f7f9; color: #1f2937; font-family: Inter, Arial, sans-serif; margin: 0; }
+    .deal-topbar { background: #fff; border-bottom: 1px solid #dfe6eb; }
+    .deal-topbar-inner { align-items: center; display: flex; justify-content: space-between; margin: auto; max-width: 1180px; padding: 16px 22px; }
+    .deal-site-logo { align-items: center; color: #11334b; display: flex; font-size: 1.3rem; font-weight: 900; gap: 9px; text-decoration: none; }
+    .deal-site-logo img { height: 38px; width: 38px; }
+    .deal-site-logo span { color: #0a9b67; }
+    .deal-home-link { color: #526575; font-size: .84rem; font-weight: 800; text-decoration: none; }
+    .deal-landing { margin: 0 auto; max-width: 1180px; padding: 24px 22px 64px; }
+    .deal-breadcrumb { color: #748491; font-size: .78rem; margin: 0 0 18px; }
+    .deal-breadcrumb a { color: inherit; text-decoration: none; }
+    .deal-landing-card { background: #fff; border: 1px solid #dfe6eb; border-radius: 6px; box-shadow: 0 14px 38px rgba(31, 41, 55, .09); display: grid; gap: 34px; grid-template-columns: minmax(280px, 43%) minmax(0, 1fr); padding: 32px; }
+    .deal-product-visual { align-items: center; background: #f7f9fa; border: 1px solid #e4e9ed; display: flex; justify-content: center; min-height: 430px; overflow: hidden; position: relative; }
+    .deal-product-visual img { height: 100%; max-height: 430px; object-fit: contain; padding: 18px; width: 100%; }
+    .deal-product-fallback { align-items: center; color: #087dbd; display: flex; font-size: 2rem; font-weight: 900; inset: 0; justify-content: center; padding: 30px; position: absolute; text-align: center; }
+    .deal-product-info { min-width: 0; }
+    .deal-eyebrow { color: #0a9b67; font-size: .73rem; font-weight: 900; letter-spacing: .08em; margin: 2px 0 7px; text-transform: uppercase; }
+    .deal-landing h1 { color: #132f43; font-size: clamp(1.8rem, 4vw, 2.55rem); letter-spacing: -.035em; line-height: 1.12; margin: 8px 0 14px; overflow-wrap: anywhere; }
     .deal-landing-meta { color: #64748b; display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; }
     .deal-landing-meta span { background: #eef8f2; border-radius: 999px; padding: 7px 11px; }
+    .deal-price-panel { align-items: center; background: #f5fbf8; border: 1px solid #d7eee3; display: flex; gap: 24px; justify-content: space-between; margin: 18px 0; padding: 16px 18px; }
+    .deal-price-panel span { color: #71808c; display: block; font-size: .72rem; font-weight: 800; text-transform: uppercase; }
+    .deal-price-panel strong { color: #087f58; display: block; font-size: 1.35rem; margin-top: 3px; }
+    .deal-description { color: #536675; font-size: .95rem; line-height: 1.72; }
     .deal-landing-code { background: #f8fafc; border: 1px dashed #94a3b8; border-radius: 8px; display: inline-block; font-weight: 800; margin: 12px 0 18px; padding: 10px 14px; }
     .deal-landing-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
     .deal-landing-actions a { background: #21b573; border-radius: 8px; color: #fff; font-weight: 800; padding: 13px 18px; text-decoration: none; }
     .deal-landing-actions a.secondary { background: #e7f7ef; color: #0f8f5d; }
-    @media (max-width: 720px) { .deal-landing-card { grid-template-columns: 1fr; } .deal-landing h1 { font-size: 28px; } }
+    .deal-detail-section { background: #fff; border: 1px solid #dfe6eb; border-radius: 6px; margin-top: 24px; padding: 28px 32px; }
+    .deal-detail-section h2 { color: #17354a; font-size: 1.4rem; margin: 0 0 18px; }
+    .deal-detail-grid { display: grid; gap: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .deal-detail-grid div { border-bottom: 1px solid #e6ebef; display: grid; gap: 6px; padding: 13px 0; }
+    .deal-detail-grid div:nth-child(odd) { padding-right: 24px; }
+    .deal-detail-grid span { color: #7a8995; font-size: .72rem; font-weight: 800; text-transform: uppercase; }
+    .deal-detail-grid strong { color: #27465b; overflow-wrap: anywhere; }
+    .deal-disclosure { color: #71808b; font-size: .78rem; line-height: 1.6; margin: 18px 0 0; }
+    @media (max-width: 760px) { .deal-topbar-inner { padding-inline: 16px; } .deal-landing { padding: 18px 16px 48px; } .deal-landing-card { grid-template-columns: 1fr; padding: 18px; } .deal-product-visual { min-height: 280px; } .deal-product-visual img { max-height: 300px; } .deal-detail-section { padding: 22px 18px; } .deal-detail-grid { grid-template-columns: 1fr; } .deal-detail-grid div:nth-child(odd) { padding-right: 0; } }
   </style>
 </head>
 <body>
   ${analyticsBody}
+  <header class="deal-topbar">
+    <div class="deal-topbar-inner">
+      <a class="deal-site-logo" href="/"><img src="/assets/alocoupon-logo.svg" alt="" />Alo<span>Coupon</span></a>
+      <a class="deal-home-link" href="/#deals">Browse all deals</a>
+    </div>
+  </header>
   <main class="deal-landing">
+    <p class="deal-breadcrumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/#deals">Deals</a> &nbsp;/&nbsp; ${productTitle}</p>
     <section class="deal-landing-card">
-      <div class="deal-landing-badge">
-        <span>${category}</span>
-        <strong>${discount}</strong>
+      <div class="deal-product-visual">
+        <div class="deal-product-fallback"${productImage ? " hidden" : ""}>${brand}</div>
+        ${productImage ? `<img src="${productImage}" alt="${productTitle}"${fallbackImage ? ` data-fallback="${fallbackImage}"` : ""} onerror="if(this.dataset.fallback && this.src !== new URL(this.dataset.fallback, location.href).href){this.src=this.dataset.fallback;this.dataset.fallback=''}else{this.hidden=true;this.previousElementSibling.hidden=false}" />` : ""}
       </div>
-      <div>
+      <div class="deal-product-info">
+        <p class="deal-eyebrow">Verified product offer</p>
         <p class="store-name">${brand}</p>
         <h1>${title}</h1>
         <div class="deal-landing-meta">
+          <span>${category}</span>
           <span>${expiry}</span>
           <span>${hasCode ? "Coupon code available" : "Affiliate deal"}</span>
         </div>
-        <p>${review}</p>
+        <div class="deal-price-panel"><div><span>Offer</span><strong>${discount}</strong></div><div><span>Product price</span><strong>${sourcePrice}</strong></div></div>
+        <p class="deal-description">${review}</p>
         <div class="deal-landing-code" data-code-output>${hasCode ? "Code hidden until you click Get Code" : "No coupon code needed"}</div>
         <div class="deal-landing-actions">
           <a href="${safeAffiliateLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Open Deal"}</a>
           <a class="secondary" href="${storePath}">Back to ${brand} coupons</a>
         </div>
       </div>
+    </section>
+    <section class="deal-detail-section">
+      <h2>Product &amp; offer details</h2>
+      <div class="deal-detail-grid">
+        <div><span>Product</span><strong>${productTitle}</strong></div>
+        <div><span>Store</span><strong>${brand}</strong></div>
+        <div><span>Category</span><strong>${category}</strong></div>
+        <div><span>Merchant website</span><strong>${merchantDomain}</strong></div>
+        <div><span>Current promotion</span><strong>${discount}</strong></div>
+        <div><span>Published</span><strong>${publishedLabel}</strong></div>
+        <div><span>Coupon requirement</span><strong>${hasCode ? "Coupon code required at checkout" : "No coupon code required"}</strong></div>
+        <div><span>Availability</span><strong>${expiry}</strong></div>
+      </div>
+      <p class="deal-disclosure">Product prices, availability, eligibility and offer terms can change on the merchant website. Confirm the final price and discount before completing your purchase.</p>
     </section>
   </main>
   ${hasCode ? `<script>

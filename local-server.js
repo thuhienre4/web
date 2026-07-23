@@ -4121,6 +4121,71 @@ function groupOffersByBrand(items) {
   }, new Map());
 }
 
+const draftStoreGroups = new Map([
+  [
+    "wpmanageninja",
+    {
+      draft: true,
+      brand: "WPManageNinja",
+      store: {
+        id: "draft_store_wpmanageninja",
+        name: "WPManageNinja",
+        sourceBrand: "wpmanageninja.com",
+        slug: "wpmanageninja",
+        category: "Software & Online Services",
+        event: "Summer Sale 2026",
+        image: "",
+        approved: true,
+        description: "WordPress plugins and business tools from the Fluent ecosystem.",
+        aboutStore: "WPManageNinja builds lightweight WordPress products for forms, CRM, support, bookings, communities, eCommerce, affiliate management, and other business workflows.",
+        howToApply: "Open the offer, choose an eligible WPManageNinja product and license, then confirm the promotional price on the official checkout page.",
+        faqs: "",
+        maxOffer: 0,
+        metaTitle: "WPManageNinja Coupons, Promo Codes & Deals",
+        metaKeywords: "WPManageNinja coupons, WPManageNinja promo codes, WordPress plugin deals",
+        metaDescription: "Preview current WPManageNinja discounts and WordPress plugin deals.",
+        sourceUrl: "https://wpmanageninja.com/discount-deal/",
+        sourceTitle: "WPManageNinja Summer Discounts 2026",
+        merchandiseDescription: "WPManageNinja develops WordPress products including FluentCart, FluentCRM, Fluent Forms, Fluent Support, FluentBooking, FluentCommunity, FluentAffiliate, and WP Social Ninja.",
+        merchandiseItems: [
+          "FluentCart",
+          "FluentCRM",
+          "Fluent Forms",
+          "Fluent Support",
+          "FluentBooking",
+          "FluentCommunity",
+          "FluentAffiliate",
+          "WP Social Ninja",
+        ],
+        merchandiseCategories: ["WordPress plugins", "Business software"],
+        merchandiseSourceUrl: "https://wpmanageninja.com/all-products/",
+        merchandiseUpdatedAt: "2026-07-23T00:00:00.000Z",
+        order: 9999999,
+        createdAt: "2026-07-23T00:00:00.000Z",
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      },
+      items: normalizeOffers([
+        {
+          id: "draft_offer_wpmanageninja_summer_2026",
+          brand: "wpmanageninja.com",
+          title: "WPManageNinja Summer Discounts 2026 - Save Up to 50%",
+          type: "deal",
+          code: "",
+          discount: "Up to 50% OFF",
+          link: "https://wpmanageninja.com/discount-deal/",
+          category: "Software & Online Services",
+          expiry: "",
+          review: "Save on eligible WPManageNinja WordPress products during the current summer promotion.",
+          sourceTitle: "WPManageNinja Summer Discounts 2026",
+          sourceDescription: "Build a WordPress business stack with promotional pricing on eligible WPManageNinja products.",
+          createdAt: "2026-07-23T00:00:00.000Z",
+          visible: false,
+        },
+      ]),
+    },
+  ],
+]);
+
 function findStoreGroupBySlug(slug) {
   const normalizedSlug = slugify(slug);
   const store = readStores().find((item) => item.slug === normalizedSlug && item.approved) || null;
@@ -4129,7 +4194,7 @@ function findStoreGroupBySlug(slug) {
   const storeItems = store ? offers.filter((offer) => String(offer.brand || '').trim().toLowerCase() === String(store.sourceBrand || store.name).trim().toLowerCase()) : [];
   const group = storeItems.length ? { brand: store.name, items: storeItems } : groups.get(normalizedSlug);
   if (group) group.store = store;
-  return group;
+  return group || draftStoreGroups.get(normalizedSlug);
 }
 
 function getValidOfferExpiry(offer) {
@@ -6718,6 +6783,7 @@ function dealPage(offer) {
 
 function storePage(group) {
   const storeRecord = group.store || {};
+  const isDraft = group.draft === true;
   const siteSettings = readSiteSettings();
   const analyticsHead = getGoogleAnalyticsHead(siteSettings);
   const analyticsBody = getGoogleAnalyticsBody(siteSettings);
@@ -6740,7 +6806,7 @@ function storePage(group) {
   const merchandiseDescription = getStoreMerchandiseDescription(group, storeRecord);
   const heroDescription = String(storeRecord.merchandiseDescription || merchandiseDescription).replace(/\s+/g, " ").trim();
   const description = escapeHtml(storeRecord.metaDescription || merchandiseDescription);
-  const structuredData = jsonLdScript(storeStructuredData(group));
+  const structuredData = isDraft ? "" : jsonLdScript(storeStructuredData(group));
   const codeCount = visibleItems.filter((offer) => isUsableCouponCode(offer.code)).length;
   const dealCount = visibleItems.length - codeCount;
   const primaryOffer = visibleItems.find((offer) => offer.logo) || visibleItems[0] || {};
@@ -6793,7 +6859,7 @@ function storePage(group) {
           <h2>${title}</h2>
           <p>${summary}</p>
           <small class="brand-source-note">Source: original product link${sourcePrice ? ` &middot; ${sourcePrice}` : ""} &middot; ${expiry}</small>
-          <a class="brand-offer-details" href="${detailPath}">View offer details</a>
+          ${isDraft ? "" : `<a class="brand-offer-details" href="${detailPath}">View offer details</a>`}
         </div>
         <div class="brand-offer-side${hasCode ? " has-code" : ""}">
           <a class="brand-offer-action" href="${safeLink}"${hasCode ? ` data-offer-id="${offerId}" data-reveal-code="true"` : ""} target="_blank" rel="sponsored noopener">${hasCode ? "Get Code" : "Get Deal"}<span>→</span></a>
@@ -6807,7 +6873,7 @@ function storePage(group) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="index, follow" />
+  <meta name="robots" content="${isDraft ? "noindex, nofollow, noarchive" : "index, follow"}" />
   <title>${escapeHtml(storeRecord.metaTitle || `${group.brand} Coupons and Promo Codes | AloCoupon`)}</title>
   <meta name="description" content="${description}" />
   <meta name="keywords" content="${escapeHtml(storeRecord.metaKeywords || `${group.brand} coupons, ${group.brand} promo codes, ${group.brand} deals, ${categoryProfile} discounts`)}" />
@@ -7416,7 +7482,13 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      send(res, 200, storePage(group), "text/html; charset=utf-8");
+      send(
+        res,
+        200,
+        storePage(group),
+        "text/html; charset=utf-8",
+        group.draft ? { "X-Robots-Tag": "noindex, nofollow, noarchive" } : {},
+      );
       return;
     }
 

@@ -4452,6 +4452,51 @@ document.addEventListener("keydown", (event) => {
 
 const revealItems = document.querySelectorAll(".reveal");
 
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+document.body.classList.add("motion-ready");
+window.requestAnimationFrame(() => {
+  window.requestAnimationFrame(() => document.body.classList.add("page-loaded"));
+});
+
+const motionCardSelector = [
+  ".deal-card",
+  ".store-card",
+  ".feature-post-card",
+  ".faq-item",
+  ".category-cloud a",
+].join(",");
+
+function prepareMotionCards(root = document) {
+  if (prefersReducedMotion.matches) return;
+  const cards = root.matches?.(motionCardSelector)
+    ? [root]
+    : Array.from(root.querySelectorAll?.(motionCardSelector) || []);
+
+  cards.forEach((card) => {
+    if (card.classList.contains("motion-card")) return;
+    const siblings = Array.from(card.parentElement?.children || []).filter((item) => item.matches?.(motionCardSelector));
+    const index = Math.max(0, siblings.indexOf(card));
+    card.classList.add("motion-card");
+    card.style.setProperty("--motion-delay", `${Math.min(index % 6, 5) * 55}ms`);
+    window.requestAnimationFrame(() => card.classList.add("motion-card-visible"));
+  });
+}
+
+prepareMotionCards();
+
+const motionCardObserver = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) prepareMotionCards(node);
+    });
+  });
+});
+
+motionCardObserver.observe(document.querySelector("main") || document.body, {
+  childList: true,
+  subtree: true,
+});
+
 revealItems.forEach((item, index) => {
   item.style.setProperty("--reveal-delay", `${Math.min(index % 5, 4) * 45}ms`);
 });
@@ -4476,6 +4521,8 @@ if ("IntersectionObserver" in window) {
 
 const scrollProgressBar = document.querySelector(".scroll-progress span");
 const backToTopButton = document.querySelector(".back-to-top");
+const siteHeader = document.querySelector(".site-header");
+const heroSection = document.querySelector(".hero");
 let scrollFramePending = false;
 
 function updatePageScrollUi() {
@@ -4485,6 +4532,10 @@ function updatePageScrollUi() {
     scrollProgressBar.style.transform = `scaleX(${Math.min(1, Math.max(0, scrollTop / scrollRange))})`;
   }
   backToTopButton?.classList.toggle("is-visible", scrollTop > 520);
+  siteHeader?.classList.toggle("is-scrolled", scrollTop > 18);
+  if (heroSection && !prefersReducedMotion.matches && window.innerWidth > 680) {
+    heroSection.style.setProperty("--hero-shift", `${Math.min(28, scrollTop * 0.075)}px`);
+  }
   scrollFramePending = false;
 }
 

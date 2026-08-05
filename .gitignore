@@ -3,6 +3,12 @@ node_modules/
 .venv/
 .agents/
 .codex/
+data/admin-users.json
+data/admin-categories.json
+data/subscribers.json
+data/project-uploads/
+data/offer-assets/
+.tmp/
 *.log
 server.log
 server.err.log

@@ -8,6 +8,7 @@ AloCoupon is a coupon and affiliate offer website with a small Node.js admin API
 - Partner offer API at `/api/offers`
 - Protected admin dashboard at `/admin`
 - Admin upload, edit, and delete for coupon/deal data
+- Private admin upload, download, and delete for source-code/project files with descriptions
 - JSON-backed data files in `data/`
 
 ## Run Locally
@@ -39,6 +40,7 @@ npm run check
 ## Data Files
 
 - `data/offers.json` starts empty so real offers can be uploaded from admin.
+- `data/projects.json` stores project metadata; uploaded files are stored in `data/project-uploads/`.
 - `data/admin-emails.json` controls which emails can log in locally.
 
 Production can override admin emails with:
@@ -46,6 +48,21 @@ Production can override admin emails with:
 ```text
 ADMIN_EMAILS=hn084933@gmail.com,ecorpenglishbtl@gmail.com
 ```
+
+## Deal Email Newsletter
+
+The homepage newsletter uses double opt-in. Subscribers are stored in `data/subscribers.json`, which is ignored by Git. Publishing a new offer from Admin sends a personalized deal alert to confirmed subscribers.
+
+Configure these production environment variables:
+
+```env
+SITE_URL=https://alocoupon.com
+RESEND_API_KEY=re_xxxxxxxxx
+RESEND_FROM_EMAIL=AloCoupon <deals@alocoupon.com>
+NEWSLETTER_SECRET=replace-with-a-long-random-secret
+```
+
+Verify the sending domain in Resend before enabling production delivery. Without the Resend variables, local signups are still saved and return a local confirmation link for development testing.
 
 ## Deploy To Render
 

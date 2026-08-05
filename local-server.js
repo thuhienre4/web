@@ -6499,7 +6499,11 @@ function serveOfferAsset(req, res, pathname) {
 }
 
 function serveStatic(req, res, pathname) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
+  const safePath = pathname === "/"
+    ? "/index.html"
+    : pathname === "/privacy-policy" || pathname === "/privacy-policy/"
+      ? "/cookie-policy.html"
+      : pathname;
   const filePath = path.normalize(path.join(root, safePath));
 
   if (!filePath.startsWith(root) || filePath.startsWith(dataDir)) {

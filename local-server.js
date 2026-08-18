@@ -4792,9 +4792,9 @@ function adminPage(adminEmail = "") {
             <summary>⇧ Chọn file Deal / Coupon (CSV / JSON)</summary>
             <form id="bulk-deal-import-form">
               <label>Các file dữ liệu <input id="bulk-deal-file" type="file" accept=".csv,.json,text/csv,application/json" multiple required /></label>
-              <small>Bạn có thể giữ Ctrl/Shift để chọn nhiều file. Tổng cộng tối đa 500 dòng mỗi lần.</small>
+              <small>File chỉ cần 2 cột: link và discount. Hệ thống sẽ tự quét tên deal, mô tả, store, danh mục và hình ảnh. Tối đa 500 dòng mỗi lần.</small>
               <label>Logo chung (không bắt buộc) <input id="bulk-deal-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
-              <label class="bulk-auto-assets"><input id="bulk-auto-assets" type="checkbox" checked /> <span><strong>Tự động lấy logo và ảnh sản phẩm</strong><small>Hệ thống theo affiliate link đến trang cửa hàng và chỉ quét các website công khai.</small></span></label>
+              <label class="bulk-auto-assets"><input id="bulk-auto-assets" type="checkbox" checked disabled /> <span><strong>Tự động quét nội dung và hình ảnh</strong><small>Hệ thống lấy tên deal, mô tả, store, danh mục, logo và ảnh sản phẩm từ affiliate link công khai.</small></span></label>
               <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu</button><button class="cms-btn cms-btn-info" id="preview-bulk-deals" type="submit">1. Xem trước & lấy ảnh</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="button" disabled>2. Đăng dữ liệu hợp lệ</button></div>
               <p id="bulk-deal-result">Chọn file rồi bấm “Xem trước & lấy ảnh”. Dòng trùng hoặc thiếu dữ liệu sẽ không được đăng.</p>
               <div class="bulk-preview" id="bulk-preview" hidden>
@@ -5365,7 +5365,7 @@ function adminPage(adminEmail = "") {
       return {
         title,
         brand: pick("brand", "store", "merchant", "thương hiệu"),
-        discount: pick("discount", "sale", "giảm giá") || "Deal",
+        discount: pick("discount", "sale", "giảm giá"),
         link: pick("link", "url", "affiliate_link", "affiliate link"),
         category: pick("category", "catalog", "danh mục") || "Other",
         review: pick("review", "description", "mô tả") || title,
@@ -5379,7 +5379,7 @@ function adminPage(adminEmail = "") {
     }
 
     document.querySelector("#download-deal-template").addEventListener("click", () => {
-      const csv = ['type,title,brand,discount,link,category,description,expiry,code,logo', '"deal","Summer Sale","example.com","20% OFF","https://example.com/?ref=your-id","Fashion","20% off selected products","2026-12-31","",""', '"coupon","Welcome Coupon","example.com","10% OFF","https://example.com/?ref=your-id","Fashion","Coupon for new customers","2026-12-31","WELCOME10",""', ''].join(String.fromCharCode(10));
+      const csv = ['link,discount', '"https://example.com/product?ref=your-id","20% OFF"', ''].join(String.fromCharCode(10));
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
@@ -5432,7 +5432,7 @@ function adminPage(adminEmail = "") {
         preparedBulkDeals = [];
         const items = await readBulkDealFiles();
         previewBulkDealsButton.textContent = bulkAutoAssetsInput.checked ? "Đang quét website & lấy ảnh..." : "Đang kiểm tra dữ liệu...";
-        const res = await fetch("/api/offers/batch/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, autoExtract: bulkAutoAssetsInput.checked }) });
+        const res = await fetch("/api/offers/batch/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, autoExtract: true }) });
         const result = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(result.error || "Không thể xem trước dữ liệu.");
         renderBulkDealPreview(result);
@@ -6499,11 +6499,7 @@ function serveOfferAsset(req, res, pathname) {
 }
 
 function serveStatic(req, res, pathname) {
-  const safePath = pathname === "/"
-    ? "/index.html"
-    : pathname === "/privacy-policy" || pathname === "/privacy-policy/"
-      ? "/cookie-policy.html"
-      : pathname;
+  const safePath = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(root, safePath));
 
   if (!filePath.startsWith(root) || filePath.startsWith(dataDir)) {
@@ -7335,7 +7331,7 @@ function getOfferDuplicateKey(offer) {
   return [String(offer.brand || "").trim().toLowerCase(), String(offer.code || "").trim().toUpperCase(), String(offer.title || "").trim().toLowerCase(), link].join("|");
 }
 
-async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
+async function prepareBatchOffers(rawItems, { autoExtract = true } = {}) {
   const items = rawItems.map((item) => ({ ...item }));
   const extractionCache = new Map();
   const extractionJobs = new Map();
@@ -7345,7 +7341,7 @@ async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
       const key = String(item.link).trim();
       if (!extractionJobs.has(key)) extractionJobs.set(key, item.link);
     });
-    const jobs = Array.from(extractionJobs.entries()).slice(0, 40);
+    const jobs = Array.from(extractionJobs.entries());
     let cursor = 0;
     async function worker() {
       while (cursor < jobs.length) {
@@ -7357,7 +7353,7 @@ async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, worker));
     items.forEach((item) => {
       const assets = extractionCache.get(String(item.link || "").trim());
       if (assets) {
@@ -7368,6 +7364,10 @@ async function prepareBatchOffers(rawItems, { autoExtract = false } = {}) {
         item.sourcePrice ||= assets.sourcePrice;
         item.sourceCurrency ||= assets.sourceCurrency;
         item.sourceUrl ||= assets.sourceUrl;
+        item.title ||= assets.sourceTitle;
+        item.review ||= assets.sourceDescription || assets.merchandiseDescription;
+        if (!item.category || /^other$/i.test(item.category)) item.category = assets.detectedCategory || item.category || 'Other';
+        item.brand ||= assets.host;
         item.assetSourceUrl = assets.sourceUrl || "";
         item.assetWarning = assets.error || "";
       }

@@ -2779,7 +2779,11 @@ const starterOffers = readJsonArrayFile(
   rootSeedOffersFile,
   readJsonArrayFile(seedOffersFile, readJsonArrayFile(bundledOffersFile, embeddedStarterOffers))
 );
-const starterAdminEmails = ["admin@alocoupon.local"];
+const starterAdminEmails = [
+  "hn084933@gmail.com",
+  "ecorpenglishbtl@gmail.com",
+  "nguyenlamvinh2411@gmail.com",
+];
 const defaultSiteSettings = {
   siteName: "AloCoupon",
   slogan: "Your Trusted Marketplace for Coupons & Deals",
@@ -3255,16 +3259,17 @@ function normalizeEmail(value) {
 
 function readAllowedAdminEmails() {
   ensureDataFile();
-  if (process.env.ADMIN_EMAILS) {
-    return process.env.ADMIN_EMAILS.split(",").map(normalizeEmail).filter(Boolean);
-  }
-
+  const configuredEmails = String(process.env.ADMIN_EMAILS || "").split(",");
+  let savedEmails = [];
   try {
     const parsed = JSON.parse(fs.readFileSync(adminEmailsFile, "utf8"));
-    return Array.isArray(parsed) ? parsed.map(normalizeEmail).filter(Boolean) : starterAdminEmails;
-  } catch {
-    return starterAdminEmails;
-  }
+    if (Array.isArray(parsed)) savedEmails = parsed;
+  } catch {}
+  return [...new Set(
+    [...starterAdminEmails, ...configuredEmails, ...savedEmails]
+      .map(normalizeEmail)
+      .filter(Boolean)
+  )];
 }
 
 function isEmailAllowed(email) {

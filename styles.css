@@ -6484,6 +6484,11 @@ body.teela-inspired-theme:not(.admin-mode) .store-slider-dots .deal-page-dot.is-
   border-radius: 999px;
 }
 
+body.teela-inspired-theme:not(.admin-mode) .store-card.is-search-best-match {
+  outline: 3px solid rgba(10, 155, 103, 0.38);
+  outline-offset: 3px;
+}
+
 @media (max-width: 1100px) {
   body.teela-inspired-theme:not(.admin-mode) .store-card {
     flex-basis: calc((100% - 48px) / 4);

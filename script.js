@@ -360,7 +360,16 @@ document.querySelectorAll(".claim-btn").forEach((button) => {
 document.querySelectorAll(".search-box").forEach((form) => form.addEventListener("submit", (event) => {
   event.preventDefault();
   const query = event.currentTarget.querySelector("input")?.value || "";
-  document.querySelectorAll(".search-box input").forEach((input) => { input.value = query; });
+  const scope = event.currentTarget.classList.contains("teela-home-search") ? "stores" : "deals";
+  document.querySelectorAll(scope === "stores" ? ".teela-home-search input" : ".search-box:not(.teela-home-search) input").forEach((input) => { input.value = query; });
+  if (scope === "stores") {
+    const result = popularStoreSearchHandler?.(query, { scroll: true, focusFirst: true });
+    const count = Number(result?.matches?.length || 0);
+    showToast(query.trim()
+      ? count ? `Found ${count} matching ${count === 1 ? "store" : "stores"} for "${query.trim()}".` : `No store matched "${query.trim()}".`
+      : "Showing all stores.");
+    return;
+  }
   if (dealSearchInputEl) {
     dealSearchInputEl.value = query;
   }
@@ -3187,6 +3196,7 @@ let activeDealPage = 0;
 let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
 let storeCarouselAutoplayTimer = null;
+let popularStoreSearchHandler = null;
 const dealsPerPage = 12;
 
 async function getAffiliateItems() {
@@ -4262,6 +4272,19 @@ function renderDealPagination(matchedDeals) {
   window.requestAnimationFrame(() => refreshHorizontalCarousel("deals"));
 }
 
+function getStoreSearchScore(card, query) {
+  const normalizedQuery = normalizeDealSearch(query);
+  if (!normalizedQuery) return 1;
+  const name = card.dataset.storeName || "";
+  const domain = card.dataset.storeDomain || "";
+  const searchable = card.dataset.storeSearch || "";
+  return Math.max(
+    getFuzzyTextScore(normalizedQuery, name) + 40,
+    getFuzzyTextScore(normalizedQuery, domain) + 25,
+    getFuzzyTextScore(normalizedQuery, searchable),
+  );
+}
+
 function renderPopularStores(items) {
   const grid = document.querySelector("#popular-store-grid");
   if (!grid) return;
@@ -4286,7 +4309,7 @@ function renderPopularStores(items) {
   });
   const totalOffers = directoryStores.reduce((sum, store) => sum + store.items.length, 0);
   grid.setAttribute("aria-busy", "true");
-  grid.innerHTML = directoryStores.map(({ brand, item, items: storeItems }) => {
+  grid.innerHTML = directoryStores.map(({ brand, item, items: storeItems }, storeIndex) => {
     const initials = escapeHtml(getStoreInitials(brand));
     const domain = getAffiliateDomain(item.link);
     const favicon = getAffiliateFaviconUrl(item.link);
@@ -4300,7 +4323,7 @@ function renderPopularStores(items) {
     const offerLabel = `${offerCount} ${offerCount === 1 ? "offer" : "offers"}`;
     const searchValue = escapeHtml(normalizeDealSearch(`${brand} ${domain}`));
     return `
-      <a class="store-card" href="/store/${encodeURIComponent(slug)}" data-store-search="${searchValue}" aria-label="View ${escapeHtml(brand)} coupons and deals">
+      <a class="store-card" href="/store/${encodeURIComponent(slug)}" data-store-search="${searchValue}" data-store-name="${escapeHtml(normalizeDealSearch(brand))}" data-store-domain="${escapeHtml(normalizeDealSearch(domain))}" data-store-order="${storeIndex}" aria-label="View ${escapeHtml(brand)} coupons and deals">
         <div class="store-card-top">
           <div class="store-logo dynamic-store-logo">${logo}</div>
           <span class="store-offer-count">${offerLabel}</span>
@@ -4323,15 +4346,26 @@ function renderPopularStores(items) {
   const initialStoreLimit = directoryStores.length;
   let showAllStores = false;
 
-  const updateStoreDirectory = () => {
-    const query = normalizeDealSearch(searchInput?.value || "");
+  const updateStoreDirectory = (options = {}) => {
+    const query = normalizeDealSearch(options.query ?? searchInput?.value ?? "");
+    if (searchInput && options.query !== undefined) searchInput.value = options.query;
     const cards = Array.from(grid.querySelectorAll(".store-card"));
-    const matches = cards.filter((card) => !query || card.dataset.storeSearch.includes(query));
+    const rankedCards = cards.map((card) => ({ card, score: getStoreSearchScore(card, query) }));
+    const matches = rankedCards
+      .filter((item) => !query || item.score >= 58)
+      .sort((a, b) => query
+        ? b.score - a.score || Number(a.card.dataset.storeOrder) - Number(b.card.dataset.storeOrder)
+        : Number(a.card.dataset.storeOrder) - Number(b.card.dataset.storeOrder));
+    rankedCards.sort((a, b) => Number(a.card.dataset.storeOrder) - Number(b.card.dataset.storeOrder));
+    (query ? matches : rankedCards).forEach(({ card }) => grid.appendChild(card));
     const displayLimit = query || showAllStores ? matches.length : initialStoreLimit;
-    const visibleCards = new Set(matches.slice(0, displayLimit));
+    const visibleCards = new Set(matches.slice(0, displayLimit).map((item) => item.card));
     cards.forEach((card) => {
       card.hidden = !visibleCards.has(card);
+      card.classList.remove("is-search-best-match");
     });
+    const bestMatch = matches[0]?.card || null;
+    if (query && bestMatch) bestMatch.classList.add("is-search-best-match");
     if (visibleCount) visibleCount.textContent = String(visibleCards.size);
     if (emptyState) emptyState.hidden = matches.length > 0;
     if (showAllButton) {
@@ -4341,8 +4375,16 @@ function renderPopularStores(items) {
         : `Show all ${directoryStores.length} stores`;
       showAllButton.setAttribute("aria-expanded", String(showAllStores));
     }
+    if (query) grid.scrollLeft = 0;
+    if (options.scroll) document.querySelector("#stores")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (options.focusFirst && bestMatch) {
+      window.setTimeout(() => bestMatch.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" }), 250);
+    }
     window.requestAnimationFrame(() => refreshHorizontalCarousel("stores"));
+    return { matches: matches.map((item) => item.card), bestMatch };
   };
+
+  popularStoreSearchHandler = (query, options = {}) => updateStoreDirectory({ ...options, query });
 
   if (searchInput) {
     searchInput.oninput = updateStoreDirectory;

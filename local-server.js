@@ -27,6 +27,14 @@ const rootSeedOffersFile = path.join(root, "seed-offers.json");
 const seedOffersFile = path.join(root, "data", "seed-offers.json");
 const bundledOffersFile = path.join(root, "data", "offers.json");
 const adminEmailsFile = path.join(dataDir, "admin-emails.json");
+const defaultIndustryCategories = [
+  "AI Tools & SaaS", "Business & Marketing", "Web Hosting & Domains",
+  "Tech & Electronics", "Fashion & Accessories", "Beauty & Fragrance",
+  "Health & Wellness", "Food & Drinks", "Home & Garden", "Kids & Babies",
+  "Pets", "Sports & Outdoors", "Travel & Hotels", "Education & Courses",
+  "Finance & Insurance", "Automotive", "Creator & Music Tools",
+  "Gifts & Flowers", "Entertainment & Games", "Other",
+];
 const sessions = new Map();
 const isProduction = process.env.NODE_ENV === "production";
 const siteUrl = String(process.env.SITE_URL || "https://alocoupon.com").replace(/\/+$/, "");
@@ -5121,6 +5129,7 @@ function adminPage(adminEmail = "") {
     let currentSettings = {};
     let categoryPreferences = {};
     let adminCategories = [];
+    const defaultIndustryCategories = ${JSON.stringify(defaultIndustryCategories)};
 
     function showToast(message) {
       toast.textContent = message;
@@ -5193,6 +5202,7 @@ function adminPage(adminEmail = "") {
     }
 
     function formatCategoryDate(value) {
+      if (!value) return "â€”";
       const date = new Date(value || Date.now());
       if (Number.isNaN(date.getTime())) return "—";
       return date.toLocaleDateString("vi-VN").replaceAll("/", "-");
@@ -5200,6 +5210,10 @@ function adminPage(adminEmail = "") {
 
     function syncCategoriesFromOffers(offers) {
       const grouped = new Map();
+      defaultIndustryCategories.forEach((name) => {
+        const key = getCategoryKey(name);
+        grouped.set(key, { key, id: key, name, type: "Coupon", count: 0, latestAt: 0 });
+      });
       offers.forEach((offer) => {
         const name = String(offer.category || "Other").trim() || "Other";
         const key = getCategoryKey(name);
@@ -5258,7 +5272,8 @@ function adminPage(adminEmail = "") {
 
     function populateCouponFilters() {
       const stores = Array.from(new Set(currentOffers.map((offer) => String(offer.brand || "").trim()).filter(Boolean))).sort();
-      const categories = Array.from(new Set(currentOffers.map((offer) => String(offer.category || "Other").trim()).filter(Boolean))).sort();
+      const usedCategories = currentOffers.map((offer) => String(offer.category || "Other").trim()).filter(Boolean);
+      const categories = Array.from(new Set([...defaultIndustryCategories, ...usedCategories]));
       const storeSelect = document.querySelector("#offer-list-store");
       const categorySelect = document.querySelector("#deal-list-category");
       const dealCreateCategory = document.querySelector("#deal-create-category");
@@ -5266,7 +5281,7 @@ function adminPage(adminEmail = "") {
       const currentCategory = categorySelect.value;
       storeSelect.innerHTML = '<option value="all">Tất cả store</option>' + stores.map((store) => '<option value="' + escapeHtml(store) + '">' + escapeHtml(store) + '</option>').join("");
       categorySelect.innerHTML = '<option value="all">Tất cả danh mục</option>' + categories.map((category) => '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>').join("");
-      dealCreateCategory.innerHTML = categories.map((category) => '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>').join("") + '<option value="Other">Other</option>';
+      dealCreateCategory.innerHTML = categories.map((category) => '<option value="' + escapeHtml(category) + '">' + escapeHtml(category) + '</option>').join("");
       if (stores.includes(currentStore)) storeSelect.value = currentStore;
       if (categories.includes(currentCategory)) categorySelect.value = currentCategory;
     }

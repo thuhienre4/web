@@ -3186,6 +3186,7 @@ const FEATURE_POST_PREVIEW_LIMIT = 12;
 let activeDealPage = 0;
 let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
+let storeCarouselAutoplayTimer = null;
 const dealsPerPage = 12;
 
 async function getAffiliateItems() {
@@ -4193,7 +4194,9 @@ function refreshHorizontalCarousel(name) {
     dots.querySelectorAll("[data-carousel-page]").forEach((button) => {
       button.addEventListener("click", () => {
         const page = Number(button.dataset.carouselPage || 0);
-        const left = dotCount <= 1 ? 0 : maxScroll * (page / (dotCount - 1));
+        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+        const latestDotCount = Math.max(1, dots.querySelectorAll("[data-carousel-page]").length);
+        const left = latestDotCount <= 1 ? 0 : latestMaxScroll * (page / (latestDotCount - 1));
         track.scrollTo({ left, behavior: "smooth" });
       });
     });
@@ -4216,13 +4219,35 @@ function refreshHorizontalCarousel(name) {
   if (root.dataset.carouselBound !== "true") {
     root.dataset.carouselBound = "true";
     root.querySelectorAll("[data-carousel-direction]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
         const direction = button.dataset.carouselDirection === "prev" ? -1 : 1;
-        track.scrollBy({ left: direction * track.clientWidth * 0.9, behavior: "smooth" });
+        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+        const latestDots = getCarouselDots(name);
+        const latestDotCount = Math.max(1, latestDots?.querySelectorAll("[data-carousel-page]").length || 1);
+        const currentProgress = latestMaxScroll > 0 ? track.scrollLeft / latestMaxScroll : 0;
+        const currentPage = latestDotCount <= 1 ? 0 : Math.round(currentProgress * (latestDotCount - 1));
+        const targetPage = Math.max(0, Math.min(latestDotCount - 1, currentPage + direction));
+        const left = latestDotCount <= 1 ? 0 : latestMaxScroll * (targetPage / (latestDotCount - 1));
+        track.scrollTo({ left, behavior: "smooth" });
       });
     });
     track.addEventListener("scroll", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
     window.addEventListener("resize", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
+
+    if (name === "stores") {
+      clearInterval(storeCarouselAutoplayTimer);
+      storeCarouselAutoplayTimer = window.setInterval(() => {
+        if (document.hidden || root.matches(":hover") || root.contains(document.activeElement) || prefersReducedMotion.matches) return;
+        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+        const latestDots = getCarouselDots(name);
+        const latestDotCount = Math.max(1, latestDots?.querySelectorAll("[data-carousel-page]").length || 1);
+        if (latestMaxScroll <= 4 || latestDotCount <= 1) return;
+        const currentPage = Math.round((track.scrollLeft / latestMaxScroll) * (latestDotCount - 1));
+        const targetPage = currentPage >= latestDotCount - 1 ? 0 : currentPage + 1;
+        track.scrollTo({ left: latestMaxScroll * (targetPage / (latestDotCount - 1)), behavior: "smooth" });
+      }, 4500);
+    }
   }
 }
 

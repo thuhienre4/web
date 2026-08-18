@@ -4533,7 +4533,7 @@ function sanitizeOffer(input) {
     brand: String(input.brand || "").trim(),
     title: String(input.title || "").trim(),
     type: normalizeOfferType(input.type),
-    code: String(input.code || "").trim().toUpperCase(),
+    code: String(input.code || "").trim().toUpperCase().slice(0, 100),
     discount: String(input.discount || "").trim(),
     link: String(input.link || "").trim(),
     category: String(input.category || "").trim(),
@@ -4558,6 +4558,8 @@ function sanitizeOffer(input) {
 
   if (!offer.code) {
     offer.type = "deal";
+  } else if (offer.type === "deal") {
+    offer.type = "code";
   }
 
   const url = new URL(offer.link);
@@ -4838,6 +4840,7 @@ function adminPage(adminEmail = "") {
             <div class="cms-field-row"><label>Hiển thị</label><label class="cms-switch"><input name="visible" type="checkbox" checked /><span>YES</span></label></div>
             <div class="cms-field-row cms-description-row"><label for="deal-create-description">Mô tả</label><div class="cms-rich-editor"><div class="cms-editor-toolbar"><button type="button">Source</button><button type="button">▣</button><button type="button">□</button><button type="button">⌕</button><button type="button">▤</button><span></span><button type="button"><b>B</b></button><button type="button"><i>I</i></button><button type="button"><u>U</u></button><button type="button">S</button><button type="button">x₂</button><button type="button">x²</button><button type="button">☷</button><button type="button">☰</button><button type="button">↶</button><button type="button">↷</button><select><option>Styles</option></select><select><option>Format</option></select><select><option>Font</option></select><select><option>Size</option></select></div><textarea id="deal-create-description" name="review" required></textarea></div></div>
             <div class="cms-field-row"><label for="deal-create-discount">Giảm giá</label><input id="deal-create-discount" name="discount" type="text" placeholder="Ví dụ: 20% Off" required /></div>
+            <div class="cms-field-row"><label for="deal-create-code">Mã coupon <small>Không bắt buộc</small></label><input id="deal-create-code" name="code" type="text" maxlength="100" autocomplete="off" placeholder="Ví dụ: SAVE20" /><small class="cms-field-help">Điền mã để tạo Coupon Code; để trống để tạo Deal không cần mã.</small></div>
             <div class="cms-field-row"><label for="deal-create-link">Affiliate link</label><input id="deal-create-link" name="link" type="url" placeholder="https://..." required /></div>
             <div class="cms-field-row"><label for="deal-create-expiry">Hạn sử dụng</label><input id="deal-create-expiry" name="expiry" type="text" placeholder="Không bắt buộc" /></div>
             <div class="cms-field-row"><label for="deal-create-meta-title">Meta title</label><input id="deal-create-meta-title" name="metaTitle" type="text" placeholder="Meta title" /></div>
@@ -6017,6 +6020,7 @@ function adminPage(adminEmail = "") {
     dealCreateForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(dealCreateForm);
+      const couponCode = String(data.get("code") || "").trim();
       const payload = {
         title: data.get("title"),
         slug: data.get("slug"),
@@ -6029,8 +6033,8 @@ function adminPage(adminEmail = "") {
         link: data.get("link"),
         expiry: data.get("expiry"),
         metaTitle: data.get("metaTitle"),
-        type: "deal",
-        code: "",
+        type: couponCode ? "code" : "deal",
+        code: couponCode,
         logo: currentDealLogo,
         autoExtract: true,
       };
@@ -6043,8 +6047,8 @@ function adminPage(adminEmail = "") {
         if (!res.ok) throw new Error(result.error || "Không thể đăng deal.");
         resetDealCreateForm();
         await loadOffers();
-        openAdminPanel("deal-list");
-        showToast("Đã đăng deal thành công.");
+        openAdminPanel(couponCode ? "offer-list" : "deal-list");
+        showToast(couponCode ? "Đã đăng Coupon Code thành công." : "Đã đăng Deal thành công.");
       } catch (error) {
         showToast(error.message);
       } finally {

@@ -6522,3 +6522,122 @@ body.teela-inspired-theme:not(.admin-mode) .store-card.is-search-best-match {
     height: 34px;
   }
 }
+
+/* Final interaction overrides: keep carousel gestures and coupon CTA styling intact. */
+body.teela-inspired-theme:not(.admin-mode) .horizontal-carousel .carousel-track {
+  touch-action: pan-x pan-y;
+}
+
+body.teela-inspired-theme:not(.admin-mode) .store-grid:focus-visible {
+  outline: 3px solid rgba(0, 126, 184, 0.24);
+  outline-offset: 4px;
+}
+
+body.teela-inspired-theme:not(.admin-mode) .store-horizontal-carousel .carousel-arrow:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(145deg, #087dbd, #075f91);
+  border-color: transparent;
+  box-shadow: 0 8px 20px rgba(7, 95, 145, 0.28);
+}
+
+body.teela-inspired-theme:not(.admin-mode) .store-horizontal-carousel .carousel-arrow:disabled {
+  color: #7d8992;
+  background: #eef2f4;
+  border-color: #dbe2e7;
+  opacity: 0.72;
+}
+
+body:not(.admin-mode) #deals .deal-content .claim-btn.coupon-action-button,
+body:not(.admin-mode) .store-coupon-action.coupon-action-button {
+  position: relative;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 7px 15px;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(135deg, #087dbd 0%, #075f91 100%);
+  border: 1px solid rgba(5, 81, 126, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 7px 16px rgba(7, 95, 145, 0.22);
+  font-family: inherit;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 180ms var(--ease), box-shadow 180ms var(--ease), background 180ms var(--ease);
+}
+
+body:not(.admin-mode) #deals .deal-content .claim-btn.coupon-action-button.has-code,
+body:not(.admin-mode) .store-coupon-action.coupon-action-button.has-code {
+  background: linear-gradient(135deg, #079b63 0%, #05794d 100%);
+  border-color: rgba(3, 105, 66, 0.28);
+  box-shadow: 0 7px 16px rgba(5, 121, 77, 0.24);
+}
+
+body:not(.admin-mode) #deals .deal-content .claim-btn.coupon-action-button.is-copied,
+body:not(.admin-mode) .store-coupon-action.coupon-action-button.is-copied {
+  background: linear-gradient(135deg, #087b4f, #045f3c);
+}
+
+body:not(.admin-mode) .coupon-action-button:not(:disabled):hover {
+  color: #fff;
+  box-shadow: 0 11px 24px rgba(5, 121, 77, 0.3);
+  transform: translateY(-2px);
+}
+
+body:not(.admin-mode) .coupon-action-icon {
+  width: 29px;
+  height: 29px;
+  flex: 0 0 29px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+body:not(.admin-mode) .coupon-action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+body:not(.admin-mode) .coupon-action-copy strong {
+  color: inherit;
+  font-size: 0.84rem;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+}
+
+body:not(.admin-mode) .coupon-action-copy small {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.64rem;
+  font-weight: 650;
+}
+
+body:not(.admin-mode) .coupon-action-button.is-loading,
+body:not(.admin-mode) .coupon-action-button:disabled {
+  cursor: wait;
+  opacity: 0.88;
+}
+
+body:not(.admin-mode) .coupon-action-button.is-loading .coupon-action-icon {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: coupon-action-spin 720ms linear infinite;
+}
+
+@keyframes coupon-action-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.admin-mode) .coupon-action-button.is-loading .coupon-action-icon {
+    animation-duration: 1.6s;
+  }
+}

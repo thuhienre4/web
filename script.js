@@ -321,33 +321,72 @@ async function fetchCouponCode(offerId) {
 }
 
 function bindCouponButton(button) {
+  if (!button || button.dataset.couponBound === "true") return;
+  button.dataset.couponBound = "true";
+  const originalLabel = button.textContent.trim();
+  const hasInitialCode = button.dataset.hasCode === "true" || isUsableCouponCode(button.dataset.code || "");
+  button.classList.add("coupon-action-button");
+  button.classList.toggle("has-code", hasInitialCode);
+
+  const renderState = (state, label = originalLabel) => {
+    button.classList.toggle("is-loading", state === "loading");
+    button.classList.toggle("is-copied", state === "copied");
+    button.setAttribute("aria-busy", String(state === "loading"));
+    button.replaceChildren();
+    const icon = document.createElement("span");
+    icon.className = "coupon-action-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = state === "loading" ? "" : state === "copied" ? "✓" : hasInitialCode ? "✂" : "→";
+    const copy = document.createElement("span");
+    copy.className = "coupon-action-copy";
+    const primary = document.createElement("strong");
+    primary.textContent = label;
+    const secondary = document.createElement("small");
+    secondary.textContent = state === "loading" ? "Getting your code…" : state === "copied" ? "Copied to clipboard" : hasInitialCode ? "Reveal & copy" : "Open store";
+    copy.append(primary, secondary);
+    button.append(icon, copy);
+  };
+
+  renderState("idle");
   button.addEventListener("click", async () => {
+    if (button.disabled) return;
     let code = button.dataset.code || "";
     const offerId = button.dataset.offerId || "";
     const hasCode = button.dataset.hasCode === "true" || isUsableCouponCode(code);
     const safeLink = button.dataset.link || "#";
-    const originalLabel = button.textContent;
 
     if (!hasCode) {
+      button.disabled = true;
+      renderState("loading", "Opening Deal");
       if (safeLink !== "#") {
         openAffiliateLinkAfterDelay(safeLink);
       }
       showToast("Opening affiliate link.");
+      window.setTimeout(() => {
+        button.disabled = false;
+        renderState("idle");
+      }, 1200);
       return;
     }
 
+    button.disabled = true;
+    renderState("loading", "Getting Code");
     if (safeLink !== "#") window.open(safeLink, "_blank", "noopener");
     try {
       if (offerId) code = await fetchCouponCode(offerId);
       await copyCoupon(code);
-      button.textContent = button.classList.contains("claim-btn") ? t("copiedLabel") : "Copied";
+      renderState("copied", "Code Copied");
       button.setAttribute("aria-label", `Copied coupon code ${code}`);
       showToast(t("copiedToast").replace("{code}", code));
 
       window.setTimeout(() => {
-        button.textContent = button.dataset.i18n ? t(button.dataset.i18n) : originalLabel;
+        button.disabled = false;
+        button.removeAttribute("aria-label");
+        renderState("idle");
       }, 2200);
     } catch (error) {
+      button.disabled = false;
+      renderState("idle");
       showToast(error.message || "Coupon code is unavailable.");
     }
   });
@@ -4183,6 +4222,30 @@ function getCarouselDots(name) {
   return document.querySelector(name === "deals" ? "#deal-slider-dots" : "#store-slider-dots");
 }
 
+function getCarouselPageOffsets(track) {
+  const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
+  if (maxScroll <= 4) return [0];
+  const visibleCards = Array.from(track.children).filter((item) => !item.hidden);
+  const pageStep = Math.max(1, track.clientWidth * 0.82);
+  const offsets = [0];
+  let nextPageAt = pageStep;
+  visibleCards.forEach((card) => {
+    const left = Math.max(0, Math.min(maxScroll, card.offsetLeft - track.offsetLeft));
+    if (left >= nextPageAt && left < maxScroll - 4) {
+      offsets.push(left);
+      nextPageAt = left + pageStep;
+    }
+  });
+  if (offsets.at(-1) < maxScroll - 4) offsets.push(maxScroll);
+  return offsets;
+}
+
+function getNearestCarouselPage(offsets, scrollLeft) {
+  return offsets.reduce((best, offset, index) => (
+    Math.abs(offset - scrollLeft) < Math.abs(offsets[best] - scrollLeft) ? index : best
+  ), 0);
+}
+
 function refreshHorizontalCarousel(name) {
   const root = document.querySelector(`[data-carousel="${name}"]`);
   const track = root?.querySelector(".carousel-track");
@@ -4190,11 +4253,9 @@ function refreshHorizontalCarousel(name) {
   if (!root || !track || !dots) return;
 
   const maxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-  const estimatedPages = maxScroll > 4
-    ? Math.ceil(maxScroll / Math.max(1, track.clientWidth * 0.9)) + 1
-    : 1;
-  const dotCount = Math.min(12, estimatedPages);
-  const signature = `${dotCount}:${Math.round(maxScroll)}`;
+  const pageOffsets = getCarouselPageOffsets(track);
+  const dotCount = pageOffsets.length;
+  const signature = pageOffsets.map((offset) => Math.round(offset)).join(":");
 
   if (dots.dataset.signature !== signature) {
     dots.dataset.signature = signature;
@@ -4204,16 +4265,13 @@ function refreshHorizontalCarousel(name) {
     dots.querySelectorAll("[data-carousel-page]").forEach((button) => {
       button.addEventListener("click", () => {
         const page = Number(button.dataset.carouselPage || 0);
-        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-        const latestDotCount = Math.max(1, dots.querySelectorAll("[data-carousel-page]").length);
-        const left = latestDotCount <= 1 ? 0 : latestMaxScroll * (page / (latestDotCount - 1));
-        track.scrollTo({ left, behavior: "smooth" });
+        const latestOffsets = getCarouselPageOffsets(track);
+        track.scrollTo({ left: latestOffsets[Math.min(page, latestOffsets.length - 1)] || 0, behavior: "smooth" });
       });
     });
   }
 
-  const progress = maxScroll > 0 ? track.scrollLeft / maxScroll : 0;
-  const activeDot = dotCount <= 1 ? 0 : Math.round(progress * (dotCount - 1));
+  const activeDot = getNearestCarouselPage(pageOffsets, track.scrollLeft);
   dots.hidden = dotCount <= 1;
   dots.querySelectorAll("[data-carousel-page]").forEach((button, index) => {
     const active = index === activeDot;
@@ -4232,30 +4290,35 @@ function refreshHorizontalCarousel(name) {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         const direction = button.dataset.carouselDirection === "prev" ? -1 : 1;
-        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-        const latestDots = getCarouselDots(name);
-        const latestDotCount = Math.max(1, latestDots?.querySelectorAll("[data-carousel-page]").length || 1);
-        const currentProgress = latestMaxScroll > 0 ? track.scrollLeft / latestMaxScroll : 0;
-        const currentPage = latestDotCount <= 1 ? 0 : Math.round(currentProgress * (latestDotCount - 1));
-        const targetPage = Math.max(0, Math.min(latestDotCount - 1, currentPage + direction));
-        const left = latestDotCount <= 1 ? 0 : latestMaxScroll * (targetPage / (latestDotCount - 1));
-        track.scrollTo({ left, behavior: "smooth" });
+        const latestOffsets = getCarouselPageOffsets(track);
+        const currentPage = getNearestCarouselPage(latestOffsets, track.scrollLeft);
+        const targetPage = Math.max(0, Math.min(latestOffsets.length - 1, currentPage + direction));
+        track.scrollTo({ left: latestOffsets[targetPage] || 0, behavior: "smooth" });
       });
     });
     track.addEventListener("scroll", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
+    track.addEventListener("load", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), true);
+    track.tabIndex = 0;
+    track.addEventListener("keydown", (event) => {
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      event.preventDefault();
+      root.querySelector(`[data-carousel-direction="${event.key === 'ArrowLeft' ? 'prev' : 'next'}"]`)?.click();
+    });
     window.addEventListener("resize", () => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)), { passive: true });
+    if (window.ResizeObserver) {
+      const observer = new ResizeObserver(() => window.requestAnimationFrame(() => refreshHorizontalCarousel(name)));
+      observer.observe(track);
+    }
 
     if (name === "stores") {
       clearInterval(storeCarouselAutoplayTimer);
       storeCarouselAutoplayTimer = window.setInterval(() => {
         if (document.hidden || root.matches(":hover") || root.contains(document.activeElement) || prefersReducedMotion.matches) return;
-        const latestMaxScroll = Math.max(0, track.scrollWidth - track.clientWidth);
-        const latestDots = getCarouselDots(name);
-        const latestDotCount = Math.max(1, latestDots?.querySelectorAll("[data-carousel-page]").length || 1);
-        if (latestMaxScroll <= 4 || latestDotCount <= 1) return;
-        const currentPage = Math.round((track.scrollLeft / latestMaxScroll) * (latestDotCount - 1));
-        const targetPage = currentPage >= latestDotCount - 1 ? 0 : currentPage + 1;
-        track.scrollTo({ left: latestMaxScroll * (targetPage / (latestDotCount - 1)), behavior: "smooth" });
+        const latestOffsets = getCarouselPageOffsets(track);
+        if (latestOffsets.length <= 1) return;
+        const currentPage = getNearestCarouselPage(latestOffsets, track.scrollLeft);
+        const targetPage = currentPage >= latestOffsets.length - 1 ? 0 : currentPage + 1;
+        track.scrollTo({ left: latestOffsets[targetPage], behavior: "smooth" });
       }, 4500);
     }
   }

@@ -7338,7 +7338,13 @@ function getOfferDuplicateKey(offer) {
     url.hash = "";
     link = `${url.hostname.toLowerCase()}${url.pathname.replace(/\/+$/, "")}${url.search}`;
   } catch {}
-  return [String(offer.brand || "").trim().toLowerCase(), String(offer.code || "").trim().toUpperCase(), String(offer.title || "").trim().toLowerCase(), link].join("|");
+  return [
+    String(offer.brand || "").trim().toLowerCase(),
+    String(offer.code || "").trim().toUpperCase(),
+    String(offer.discount || "").trim().toLowerCase(),
+    String(offer.title || "").trim().toLowerCase(),
+    link,
+  ].join("|");
 }
 
 async function prepareBatchOffers(rawItems, { autoExtract = true } = {}) {

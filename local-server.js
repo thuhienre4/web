@@ -4757,6 +4757,7 @@ function adminPage(adminEmail = "") {
           <div class="cms-create-actions cms-store-actions">
             <button class="cms-btn cms-btn-primary" type="submit" form="store-editor-form">▣ Cập nhật</button>
             <a class="cms-btn cms-btn-info" id="store-preview-btn" href="#" target="_blank" rel="noopener" hidden>◉ Xem trước</a>
+            <button class="cms-btn cms-btn-info" id="store-add-deal-btn" type="button" hidden>⊕ Thêm Deal/Coupon</button>
             <button class="cms-btn cms-btn-info" id="store-new-btn" type="button">⊕ Thêm mới</button>
             <button class="cms-btn cms-btn-danger" id="store-delete-btn" type="button" hidden>▰ Xóa</button>
             <button class="cms-btn cms-btn-dark" data-admin-target="store-list" type="button">↶ Cancel</button>
@@ -4787,7 +4788,7 @@ function adminPage(adminEmail = "") {
             <div class="cms-field-row"><label for="store-meta-title">Meta title</label><input id="store-meta-title" name="metaTitle" type="text" /></div>
             <div class="cms-field-row"><label for="store-meta-keywords">Meta keywords</label><input id="store-meta-keywords" name="metaKeywords" type="text" /></div>
             <div class="cms-field-row cms-description-row"><label for="store-meta-description">Meta description</label><textarea id="store-meta-description" name="metaDescription" rows="4"></textarea></div>
-            <div class="cms-field-row" id="store-offers-link-row" hidden><label>List Offers</label><button class="category-name-link" id="store-view-offers-btn" type="button">View Offers</button></div>
+            <div class="cms-field-row" id="store-offers-link-row" hidden><label>Deal & Coupon của Store</label><button class="category-name-link" id="store-view-offers-btn" type="button">Xem danh sách</button></div>
             <div class="cms-form-footer"><span></span><button class="cms-btn cms-btn-primary" type="submit">Save</button></div>
           </form>
         </section>
@@ -4828,7 +4829,7 @@ function adminPage(adminEmail = "") {
             <div><h1>Thêm mới deal</h1></div>
             <div class="cms-breadcrumb"><button data-admin-target="categories">Home</button><span>/</span><button data-admin-target="deal-list">Deal</button><span>/</span><strong>Thêm mới deal</strong></div>
           </div>
-          <div class="cms-create-actions"><button class="cms-btn cms-btn-primary" type="submit" form="deal-create-form">▣ Cập nhật</button><button class="cms-btn cms-btn-dark" data-admin-target="deal-list" type="button">↶ Cancel</button></div>
+          <div class="cms-create-actions"><button class="cms-btn cms-btn-primary" type="submit" form="deal-create-form">▣ Cập nhật</button><button class="cms-btn cms-btn-dark" id="deal-create-cancel-btn" data-admin-target="deal-list" type="button">↶ Cancel</button></div>
           <form class="cms-editor-form" id="deal-create-form">
             <div class="cms-field-row"><label for="deal-create-title">Tên deal</label><input id="deal-create-title" name="title" type="text" placeholder="Tên deal" required /></div>
             <div class="cms-field-row"><label for="deal-create-slug">Slug</label><input id="deal-create-slug" name="slug" type="text" placeholder="Slug" /></div>
@@ -5115,6 +5116,7 @@ function adminPage(adminEmail = "") {
     let currentLogo = "";
     let currentProjectFiles = [];
     let currentDealLogo = "";
+    let dealCreateStoreId = "";
     let currentSettings = {};
     let categoryPreferences = {};
     let adminCategories = [];
@@ -5667,6 +5669,7 @@ function adminPage(adminEmail = "") {
     ["deal-list-category", "deal-list-status"].forEach((id) => document.querySelector("#" + id).addEventListener("change", renderDealManager));
 
     document.querySelectorAll(".create-coupon-btn").forEach((button) => button.addEventListener("click", () => {
+      dealCreateStoreId = "";
       const type = button.dataset.createType || "code";
       if (type === "deal") {
         resetDealCreateForm();
@@ -5763,6 +5766,12 @@ function adminPage(adminEmail = "") {
       document.querySelector('#store-editor-title').textContent = item.id ? 'Sửa store' : 'Thêm mới store';
       document.querySelector('#store-delete-btn').hidden = !item.id;
       document.querySelector('#store-offers-link-row').hidden = !item.id;
+      document.querySelector('#store-add-deal-btn').hidden = !item.id;
+      if (item.id) {
+        const storeBrand = String(item.sourceBrand || item.name || '').trim().toLowerCase();
+        const offerCount = currentOffers.filter((offer) => String(offer.brand || '').trim().toLowerCase() === storeBrand).length;
+        document.querySelector('#store-view-offers-btn').textContent = 'Xem danh sách (' + offerCount + ')';
+      }
       const preview = document.querySelector('#store-preview-btn');
       preview.hidden = !item.slug;
       preview.href = item.slug ? '/store/' + encodeURIComponent(item.slug) : '#';
@@ -5785,6 +5794,42 @@ function adminPage(adminEmail = "") {
     }, true);
 
     document.querySelector('#store-new-btn').addEventListener('click', () => openStoreEditor(null));
+
+    function openDealCreateForStore(store) {
+      if (!store?.id) return;
+      dealCreateStoreId = store.id;
+      resetDealCreateForm();
+      const brand = store.sourceBrand || store.name || '';
+      const category = store.category || 'Other';
+      dealCreateForm.elements.brand.value = brand;
+      if (!Array.from(dealCreateForm.elements.category.options).some((option) => option.value === category)) {
+        dealCreateForm.elements.category.add(new Option(category, category));
+      }
+      dealCreateForm.elements.category.value = category;
+      dealCreateForm.elements.link.value = store.sourceUrl || '';
+      currentDealLogo = store.image || '';
+      dealCreatePreview.src = currentDealLogo;
+      dealCreatePreviewRow.hidden = !currentDealLogo;
+      dealCreateFileName.textContent = currentDealLogo ? 'Dùng logo của Store' : 'Tự động lấy từ website';
+      openAdminPanel('deal-create');
+      dealCreateForm.elements.title.focus();
+      showToast('Đang thêm Deal/Coupon cho ' + store.name + '.');
+    }
+
+    document.querySelector('#store-add-deal-btn').addEventListener('click', () => {
+      const store = currentStores.find((item) => item.id === storeEditorForm.elements.id.value);
+      if (store) openDealCreateForStore(store);
+    });
+
+    document.querySelector('#deal-create-cancel-btn').addEventListener('click', (event) => {
+      if (!dealCreateStoreId) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const store = currentStores.find((item) => item.id === dealCreateStoreId);
+      dealCreateStoreId = '';
+      if (store) openStoreEditor(store);
+      else openAdminPanel('store-list');
+    }, true);
     storeEditorForm.elements.name.addEventListener('input', () => {
       if (!storeEditorForm.elements.id.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
     });
@@ -6055,8 +6100,17 @@ function adminPage(adminEmail = "") {
         if (!res.ok) throw new Error(result.error || "Không thể đăng deal.");
         resetDealCreateForm();
         await loadOffers();
-        openAdminPanel(couponCode ? "offer-list" : "deal-list");
-        showToast(couponCode ? "Đã đăng Coupon Code thành công." : "Đã đăng Deal thành công.");
+        if (dealCreateStoreId) {
+          const storeId = dealCreateStoreId;
+          dealCreateStoreId = "";
+          const store = currentStores.find((item) => item.id === storeId);
+          if (store) openStoreEditor(store);
+          else openAdminPanel("store-list");
+          showToast(couponCode ? "Đã thêm Coupon Code vào Store." : "Đã thêm Deal vào Store.");
+        } else {
+          openAdminPanel(couponCode ? "offer-list" : "deal-list");
+          showToast(couponCode ? "Đã đăng Coupon Code thành công." : "Đã đăng Deal thành công.");
+        }
       } catch (error) {
         showToast(error.message);
       } finally {

@@ -3230,7 +3230,7 @@ let activeDealType = "all";
 let activeDealStore = "all";
 let lastAffiliateItems = [];
 let featurePostsExpanded = false;
-const FEATURE_POST_PREVIEW_LIMIT = 12;
+const FEATURE_POST_PREVIEW_LIMIT = 1;
 let activeDealPage = 0;
 let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
@@ -4038,23 +4038,55 @@ function renderFeaturePost(items) {
     ? featuredItems
     : featuredItems.slice(0, FEATURE_POST_PREVIEW_LIMIT);
 
+  const formatPrice = (value, currency) => {
+    const amount = Number(String(value || "").replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) return "";
+    try {
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD", maximumFractionDigits: 2 }).format(amount);
+    } catch {
+      return [currency, amount.toFixed(2)].filter(Boolean).join(" ");
+    }
+  };
+  const getFeatures = (item) => {
+    const extracted = Array.isArray(item.sourceFeatures) ? item.sourceFeatures : [];
+    if (extracted.length) return extracted.slice(0, 6);
+    return String(item.sourceDescription || item.review || "")
+      .split(/(?:\r?\n|[•]|(?<=[.!?])\s+)/)
+      .map((value) => value.trim())
+      .filter((value) => value.length >= 24)
+      .slice(0, 4);
+  };
+
   grid.innerHTML = visibleItems.map((item) => {
     const brand = getOfferBrandName(item);
-    const title = getDisplayOfferTitle(item);
+    const title = item.sourceTitle || getDisplayOfferTitle(item);
     const summary = getOfferSummary(item);
     const imageSource = item.productImage || item.landingImage || item.logo || "assets/affiliate-hero.png";
     const fallbackSource = item.landingImage || item.logo || "assets/affiliate-hero.png";
     const detailLink = getOfferDealUrl(item);
+    const affiliateLink = getAloCouponAffiliateUrl(item.link);
     const usesLogo = Boolean(item.logo && imageSource === item.logo);
+    const currentPrice = formatPrice(item.sourcePrice, item.sourceCurrency);
+    const comparePrice = formatPrice(item.sourceCompareAtPrice, item.sourceCurrency);
+    const features = getFeatures(item);
+    const ratingValue = Number(item.ratingValue || 0);
+    const ratingCount = Number(item.ratingCount || 0);
+    const discountMatch = String(item.discount || "").match(/\d+(?:\.\d+)?%/);
+    const discountBadge = discountMatch?.[0] || String(item.discount || "").trim();
     return `
-      <article class="feature-post-card${usesLogo ? " uses-logo" : ""}" data-offer-id="${escapeHtml(item.id || "")}">
+      <article class="feature-post-card feature-product-card${usesLogo ? " uses-logo" : ""}" data-offer-id="${escapeHtml(item.id || "")}">
         <a class="feature-post-media" href="${detailLink}" aria-label="Read ${escapeHtml(title)}">
           <img src="${escapeHtml(imageSource)}" data-fallback="${escapeHtml(fallbackSource)}" alt="${escapeHtml(brand)} featured product" loading="lazy" decoding="async" />
         </a>
         <div class="feature-post-copy">
+          <div class="feature-product-kicker"><span>${escapeHtml(brand)}</span>${discountBadge ? `<strong>${escapeHtml(discountBadge)}</strong>` : ""}</div>
           <h3><a href="${detailLink}">${escapeHtml(title)}</a></h3>
           <p>${escapeHtml(summary)}</p>
-          <a class="read-link" href="${detailLink}">Continue Reading</a>
+          ${ratingValue ? `<div class="feature-product-rating" aria-label="${ratingValue.toFixed(1)} out of 5"><span>★★★★★</span><b>${ratingValue.toFixed(1)}</b>${ratingCount ? `<small>${ratingCount.toLocaleString("en-US")} reviews</small>` : ""}</div>` : ""}
+          ${currentPrice ? `<div class="feature-product-price"><strong>${escapeHtml(currentPrice)}</strong>${comparePrice ? `<del>${escapeHtml(comparePrice)}</del>` : ""}</div>` : ""}
+          ${item.sourceSku ? `<div class="feature-product-sku">SKU: ${escapeHtml(item.sourceSku)}</div>` : ""}
+          ${features.length ? `<ul class="feature-product-points">${features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}</ul>` : ""}
+          <div class="feature-product-actions"><a class="read-link" href="${detailLink}">Product details</a><a class="feature-shop-link" href="${escapeHtml(affiliateLink)}" target="_blank" rel="sponsored noopener">View at store</a></div>
         </div>
       </article>`;
   }).join("");

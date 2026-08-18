@@ -2929,7 +2929,7 @@ function renderHomePageHtml() {
   const description = escapeHtml(settings.seoDescription || defaultSiteSettings.seoDescription);
   const keywords = escapeHtml(settings.seoKeywords || defaultSiteSettings.seoKeywords);
   let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const publicAssetVersion = '20260818-store-conveyor-categories';
+  const publicAssetVersion = '20260818-feature-product-details';
   html = html.replace(/styles\.css(?:\?v=[^"']*)?/g, `styles.css?v=${publicAssetVersion}`);
   html = html.replace(/script\.js(?:\?v=[^"']*)?/g, `script.js?v=${publicAssetVersion}`);
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
@@ -3619,6 +3619,12 @@ function cleanImportedText(value, maxLength = 1200) {
     .trim()).slice(0, maxLength);
 }
 
+function cleanImportedPrice(value) {
+  const text = cleanImportedText(value, 80);
+  const match = text.match(/\d[\d,]*(?:\.\d{1,2})?/);
+  return match ? match[0].replace(/,/g, "").slice(0, 40) : "";
+}
+
 function findImportedProduct(value) {
   if (!value || typeof value !== "object") return null;
   if (Array.isArray(value)) {
@@ -3673,7 +3679,10 @@ function discoverStoreAssets(html, pageUrl) {
   let sourceTitle = "";
   let sourceDescription = "";
   let sourcePrice = "";
+  let sourceCompareAtPrice = "";
   let sourceCurrency = "";
+  let sourceSku = "";
+  const sourceFeatures = [];
   let ratingValue = 0;
   let ratingCount = 0;
   const add = (collection, value) => {
@@ -3688,7 +3697,20 @@ function discoverStoreAssets(html, pageUrl) {
     if (!sourceTitle && ["og:title", "twitter:title"].includes(marker)) sourceTitle = cleanImportedText(readImportedAttribute(tag, "content"), 240);
     if (!sourceDescription && ["description", "og:description", "twitter:description"].includes(marker)) sourceDescription = cleanImportedText(readImportedAttribute(tag, "content"));
     if (!sourcePrice && ["product:price:amount", "og:price:amount"].includes(marker)) sourcePrice = cleanImportedText(readImportedAttribute(tag, "content"), 40);
+    if (!sourceCompareAtPrice && ["product:original_price:amount", "product:compare_at_price:amount"].includes(marker)) sourceCompareAtPrice = cleanImportedPrice(readImportedAttribute(tag, "content"));
     if (!sourceCurrency && ["product:price:currency", "og:price:currency"].includes(marker)) sourceCurrency = cleanImportedText(readImportedAttribute(tag, "content"), 12).toUpperCase();
+  }
+  const regularPriceMatch = html.match(/<s\b[^>]*class\s*=\s*["'][^"']*price-item--regular[^"']*["'][^>]*>([\s\S]*?)<\/s>/i)
+    || html.match(/<(?:s|del)\b[^>]*(?:compare-at|regular-price|old-price)[^>]*>([\s\S]*?)<\/(?:s|del)>/i);
+  if (regularPriceMatch) sourceCompareAtPrice ||= cleanImportedPrice(regularPriceMatch[1]);
+  const addFeature = (value) => {
+    const feature = cleanImportedText(value, 300);
+    if (feature.length >= 18 && !sourceFeatures.some((item) => item.toLowerCase() === feature.toLowerCase())) sourceFeatures.push(feature);
+  };
+  for (const match of html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
+    if (sourceFeatures.length >= 12) break;
+    if (!/<strong\b/i.test(match[1])) continue;
+    addFeature(match[1]);
   }
   for (const match of html.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
     const tag = match[0];
@@ -3723,6 +3745,17 @@ function discoverStoreAssets(html, pageUrl) {
         const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
         sourcePrice ||= cleanImportedText(offers?.price || offers?.lowPrice, 40);
         sourceCurrency ||= cleanImportedText(offers?.priceCurrency, 12).toUpperCase();
+        sourceSku ||= cleanImportedText(product.sku || product.mpn || product.productID, 120);
+        const aggregate = product.aggregateRating;
+        if (aggregate && !ratingValue) {
+          const rawValue = Number(aggregate.ratingValue);
+          const bestRating = Number(aggregate.bestRating || 5);
+          const reviews = Math.floor(Number(aggregate.ratingCount || aggregate.reviewCount));
+          if (rawValue > 0 && bestRating > 0) ratingValue = Math.min(5, Math.max(1, (rawValue / bestRating) * 5));
+          if (reviews > 0) ratingCount = reviews;
+        }
+        const properties = Array.isArray(product.additionalProperty) ? product.additionalProperty : [product.additionalProperty];
+        properties.filter(Boolean).forEach((property) => addFeature([property?.name, property?.value].filter(Boolean).join(": ")));
       }
     } catch {}
   }
@@ -3733,7 +3766,10 @@ function discoverStoreAssets(html, pageUrl) {
     sourceTitle,
     sourceDescription,
     sourcePrice,
+    sourceCompareAtPrice,
     sourceCurrency,
+    sourceSku,
+    sourceFeatures: sourceFeatures.slice(0, 10),
     ratingValue,
     ratingCount,
   };
@@ -4557,7 +4593,13 @@ function sanitizeOffer(input) {
     sourceTitle: String(input.sourceTitle || "").trim().slice(0, 240),
     sourceDescription: String(input.sourceDescription || "").trim().slice(0, 1200),
     sourcePrice: String(input.sourcePrice || "").trim().slice(0, 40),
+    sourceCompareAtPrice: String(input.sourceCompareAtPrice || "").trim().slice(0, 40),
     sourceCurrency: String(input.sourceCurrency || "").trim().toUpperCase().slice(0, 12),
+    sourceSku: String(input.sourceSku || "").trim().slice(0, 120),
+    sourceFeatures: (Array.isArray(input.sourceFeatures) ? input.sourceFeatures : String(input.sourceFeatures || "").split(/\r?\n/))
+      .map((item) => String(item || "").replace(/\s+/g, " ").trim().slice(0, 300))
+      .filter(Boolean)
+      .slice(0, 10),
     sourceUrl: String(input.sourceUrl || input.assetSourceUrl || "").trim().slice(0, 2000),
     ratingValue: Number(input.ratingValue) > 0 ? Math.min(5, Math.max(1, Number(input.ratingValue))) : 0,
     ratingCount: Number(input.ratingCount) > 0 ? Math.floor(Number(input.ratingCount)) : 0,
@@ -4595,7 +4637,7 @@ function sanitizeOffer(input) {
 
 function sanitizeUpdatedOffer(input, existingOffer) {
   return {
-    ...sanitizeOffer({ ...input, id: existingOffer.id }),
+    ...sanitizeOffer({ ...existingOffer, ...input, id: existingOffer.id }),
     createdAt: existingOffer.createdAt,
   };
 }
@@ -7465,7 +7507,12 @@ async function prepareBatchOffers(rawItems, { autoExtract = true } = {}) {
         item.sourceTitle ||= assets.sourceTitle;
         item.sourceDescription ||= assets.sourceDescription;
         item.sourcePrice ||= assets.sourcePrice;
+        item.sourceCompareAtPrice ||= assets.sourceCompareAtPrice;
         item.sourceCurrency ||= assets.sourceCurrency;
+        item.sourceSku ||= assets.sourceSku;
+        item.sourceFeatures ||= assets.sourceFeatures;
+        item.ratingValue ||= assets.ratingValue;
+        item.ratingCount ||= assets.ratingCount;
         item.sourceUrl ||= assets.sourceUrl;
         item.title ||= assets.sourceTitle;
         item.review ||= assets.sourceDescription || assets.merchandiseDescription;
@@ -7810,7 +7857,9 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(await readBody(req));
       const requestedIds = new Set((Array.isArray(payload.ids) ? payload.ids : []).slice(0, 40).map(String));
       const offers = readOffers();
-      const targets = offers.filter((offer) => requestedIds.size ? requestedIds.has(offer.id) : (!offer.logo || !offer.productImage || /^https?:/i.test(offer.logo))).slice(0, 40);
+      const targets = offers.filter((offer) => requestedIds.size ? requestedIds.has(offer.id) : (
+        !offer.logo || !offer.productImage || !offer.sourcePrice || !offer.sourceSku || !offer.sourceFeatures?.length || /^https?:/i.test(offer.logo)
+      )).slice(0, 40);
       let refreshed = 0;
       const failures = [];
       for (const offer of targets) {
@@ -7821,7 +7870,12 @@ const server = http.createServer(async (req, res) => {
           offer.sourceTitle = assets.sourceTitle || offer.sourceTitle || "";
           offer.sourceDescription = assets.sourceDescription || offer.sourceDescription || "";
           offer.sourcePrice = assets.sourcePrice || offer.sourcePrice || "";
+          offer.sourceCompareAtPrice = assets.sourceCompareAtPrice || offer.sourceCompareAtPrice || "";
           offer.sourceCurrency = assets.sourceCurrency || offer.sourceCurrency || "";
+          offer.sourceSku = assets.sourceSku || offer.sourceSku || "";
+          offer.sourceFeatures = assets.sourceFeatures?.length ? assets.sourceFeatures : (offer.sourceFeatures || []);
+          offer.ratingValue = assets.ratingValue || offer.ratingValue || 0;
+          offer.ratingCount = assets.ratingCount || offer.ratingCount || 0;
           offer.sourceUrl = assets.sourceUrl || offer.sourceUrl || "";
           refreshed += 1;
         } catch (error) {
@@ -8016,11 +8070,21 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = JSON.parse(await readBody(req));
-      if (!payload.logo && payload.link && payload.autoExtract !== false) {
+      if (payload.link && payload.autoExtract !== false) {
         try {
           const assets = await extractStoreAssets(payload.link);
-          payload.logo = assets.logo;
-          payload.productImage = assets.productImage;
+          payload.logo ||= assets.logo;
+          payload.productImage ||= assets.productImage;
+          payload.sourceTitle ||= assets.sourceTitle;
+          payload.sourceDescription ||= assets.sourceDescription;
+          payload.sourcePrice ||= assets.sourcePrice;
+          payload.sourceCompareAtPrice ||= assets.sourceCompareAtPrice;
+          payload.sourceCurrency ||= assets.sourceCurrency;
+          payload.sourceSku ||= assets.sourceSku;
+          payload.sourceFeatures ||= assets.sourceFeatures;
+          payload.sourceUrl ||= assets.sourceUrl;
+          payload.ratingValue ||= assets.ratingValue;
+          payload.ratingCount ||= assets.ratingCount;
         } catch {}
       }
       const offer = sanitizeOffer(payload);

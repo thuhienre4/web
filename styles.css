@@ -5355,6 +5355,19 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
   display: none;
 }
 
+body:not(.admin-mode) #stores .is-store-conveyor {
+  scroll-behavior: auto !important;
+  scroll-snap-type: none !important;
+}
+
+body:not(.admin-mode) #stores .is-store-conveyor .store-card {
+  scroll-snap-align: none !important;
+}
+
+body:not(.admin-mode) #stores .store-card-clone {
+  pointer-events: none;
+}
+
 .teela-inspired-theme .store-grid {
   display: flex !important;
   gap: 35px;

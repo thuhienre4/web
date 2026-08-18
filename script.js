@@ -3234,7 +3234,6 @@ const FEATURE_POST_PREVIEW_LIMIT = 12;
 let activeDealPage = 0;
 let activeHeroStoreIndex = 1;
 let heroAutoplayTimer = null;
-let storeCarouselAutoplayTimer = null;
 let popularStoreSearchHandler = null;
 const dealsPerPage = 12;
 
@@ -4335,18 +4334,60 @@ function refreshHorizontalCarousel(name) {
       observer.observe(track);
     }
 
-    if (name === "stores") {
-      clearInterval(storeCarouselAutoplayTimer);
-      storeCarouselAutoplayTimer = window.setInterval(() => {
-        if (document.hidden || root.matches(":hover") || root.contains(document.activeElement) || prefersReducedMotion.matches) return;
-        const latestOffsets = getCarouselPageOffsets(track);
-        if (latestOffsets.length <= 1) return;
-        const currentPage = getNearestCarouselPage(latestOffsets, track.scrollLeft);
-        const targetPage = currentPage >= latestOffsets.length - 1 ? 0 : currentPage + 1;
-        track.scrollTo({ left: latestOffsets[targetPage], behavior: "smooth" });
-      }, 4500);
-    }
   }
+}
+
+function startStoreCarouselConveyor() {
+  const root = document.querySelector('[data-carousel="stores"]');
+  const track = root?.querySelector('.carousel-track');
+  if (!root || !track || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  if (root.storeConveyorFrame) window.cancelAnimationFrame(root.storeConveyorFrame);
+  track.querySelectorAll('.store-card-clone').forEach((clone) => clone.remove());
+  const originalCards = Array.from(track.querySelectorAll('.store-card:not([hidden])'));
+  if (originalCards.length < 2) return;
+  track.classList.add('is-store-conveyor');
+
+  const appendCloneSet = () => originalCards.map((card) => {
+    const clone = card.cloneNode(true);
+    clone.classList.add('store-card-clone');
+    clone.setAttribute('aria-hidden', 'true');
+    clone.setAttribute('tabindex', '-1');
+    clone.querySelectorAll('a, button, input, select, textarea, [tabindex]').forEach((element) => element.setAttribute('tabindex', '-1'));
+    track.appendChild(clone);
+    return clone;
+  });
+
+  const firstCloneSet = appendCloneSet();
+  const loopDistance = firstCloneSet[0]?.offsetLeft - originalCards[0]?.offsetLeft;
+  let cloneSetCount = 1;
+  while (loopDistance > 0 && track.scrollWidth < loopDistance + track.clientWidth + 40 && cloneSetCount < 12) {
+    appendCloneSet();
+    cloneSetCount += 1;
+  }
+
+  if (root.dataset.conveyorBound !== 'true') {
+    root.dataset.conveyorBound = 'true';
+    root.dataset.conveyorPaused = 'false';
+    root.addEventListener('pointerdown', () => {
+      root.dataset.conveyorPaused = 'true';
+      window.clearTimeout(root.storeConveyorResumeTimer);
+      root.storeConveyorResumeTimer = window.setTimeout(() => { root.dataset.conveyorPaused = 'false'; }, 1600);
+    }, { passive: true });
+  }
+
+  let previousTime = performance.now();
+  const speed = 38;
+  const animate = (currentTime) => {
+    const elapsedSeconds = Math.min(0.05, Math.max(0, (currentTime - previousTime) / 1000));
+    previousTime = currentTime;
+    if (!document.hidden && root.dataset.conveyorPaused !== 'true' && loopDistance > 0) {
+      track.scrollLeft += speed * elapsedSeconds;
+      if (track.scrollLeft >= loopDistance) track.scrollLeft -= loopDistance;
+    }
+    root.storeConveyorFrame = window.requestAnimationFrame(animate);
+  };
+  root.storeConveyorFrame = window.requestAnimationFrame(animate);
 }
 
 function renderDealPagination(matchedDeals) {
@@ -4435,9 +4476,10 @@ function renderPopularStores(items) {
   let showAllStores = false;
 
   const updateStoreDirectory = (options = {}) => {
+    grid.querySelectorAll('.store-card-clone').forEach((clone) => clone.remove());
     const query = normalizeDealSearch(options.query ?? searchInput?.value ?? "");
     if (searchInput && options.query !== undefined) searchInput.value = options.query;
-    const cards = Array.from(grid.querySelectorAll(".store-card"));
+    const cards = Array.from(grid.querySelectorAll(".store-card:not(.store-card-clone)"));
     const rankedCards = cards.map((card) => ({ card, score: getStoreSearchScore(card, query) }));
     const matches = rankedCards
       .filter((item) => !query || item.score >= 58)
@@ -4468,7 +4510,10 @@ function renderPopularStores(items) {
     if (options.focusFirst && bestMatch) {
       window.setTimeout(() => bestMatch.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" }), 250);
     }
-    window.requestAnimationFrame(() => refreshHorizontalCarousel("stores"));
+    window.requestAnimationFrame(() => {
+      refreshHorizontalCarousel("stores");
+      startStoreCarouselConveyor();
+    });
     return { matches: matches.map((item) => item.card), bestMatch };
   };
 

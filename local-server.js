@@ -4804,7 +4804,7 @@ function adminPage(adminEmail = "") {
             <summary>⇧ Chọn file Deal / Coupon (CSV / JSON)</summary>
             <form id="bulk-deal-import-form">
               <label>Các file dữ liệu <input id="bulk-deal-file" type="file" accept=".csv,.json,text/csv,application/json" multiple required /></label>
-              <small>File chỉ cần 2 cột: link và discount. Hệ thống sẽ tự quét tên deal, mô tả, store, danh mục và hình ảnh. Tối đa 500 dòng mỗi lần.</small>
+              <small>File dùng 3 cột: link, discount và code. Cột code không bắt buộc: có mã sẽ tạo Coupon Code, để trống sẽ tạo Deal. Hệ thống tự quét tên, mô tả, store, danh mục và hình ảnh. Tối đa 500 dòng mỗi lần.</small>
               <label>Logo chung (không bắt buộc) <input id="bulk-deal-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
               <label class="bulk-auto-assets"><input id="bulk-auto-assets" type="checkbox" checked disabled /> <span><strong>Tự động quét nội dung và hình ảnh</strong><small>Hệ thống lấy tên deal, mô tả, store, danh mục, logo và ảnh sản phẩm từ affiliate link công khai.</small></span></label>
               <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu</button><button class="cms-btn cms-btn-info" id="preview-bulk-deals" type="submit">1. Xem trước & lấy ảnh</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="button" disabled>2. Đăng dữ liệu hợp lệ</button></div>
@@ -5373,7 +5373,7 @@ function adminPage(adminEmail = "") {
         return "";
       };
       const title = pick("title", "name", "deal_name", "tên deal");
-      const code = pick("code", "coupon_code", "mã");
+      const code = pick("code", "coupon_code", "coupon code", "mã", "mã coupon", "ma coupon");
       const requestedType = pick("type", "offer_type", "loại").toLowerCase();
       return {
         title,
@@ -5392,7 +5392,12 @@ function adminPage(adminEmail = "") {
     }
 
     document.querySelector("#download-deal-template").addEventListener("click", () => {
-      const csv = ['link,discount', '"https://example.com/product?ref=your-id","20% OFF"', ''].join(String.fromCharCode(10));
+      const csv = [
+        'link,discount,code',
+        '"https://example.com/product?ref=your-id","20% OFF","SAVE20"',
+        '"https://example.com/sale?ref=your-id","Free shipping",""',
+        '',
+      ].join(String.fromCharCode(10));
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
@@ -5425,11 +5430,14 @@ function adminPage(adminEmail = "") {
     function renderBulkDealPreview(result) {
       const validRows = result.items || [];
       const issueRows = [...(result.errors || []), ...(result.duplicates || [])];
+      const couponRows = validRows.filter((item) => item.type === "code").length;
+      const dealRows = validRows.length - couponRows;
       bulkPreview.hidden = false;
-      bulkPreviewSummary.innerHTML = '<strong>' + validRows.length + ' dòng sẵn sàng</strong><span>' + Number(result.extractedCount || 0) + ' dòng có ảnh tự động</span><span>' + issueRows.length + ' dòng bị bỏ qua</span>';
+      bulkPreviewSummary.innerHTML = '<strong>' + validRows.length + ' dòng sẵn sàng</strong><span>' + couponRows + ' Coupon Code</span><span>' + dealRows + ' Deal</span><span>' + Number(result.extractedCount || 0) + ' dòng có ảnh tự động</span><span>' + issueRows.length + ' dòng bị bỏ qua</span>';
       const validHtml = validRows.slice(0, 200).map((item, index) => {
         const image = item.productImage || item.logo || "";
-        return '<tr><td>' + (index + 1) + '</td><td>' + (image ? '<img src="' + escapeHtml(image) + '" alt="" />' : '—') + '</td><td><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.discount || "") + '</small></td><td>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '">' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok">Hợp lệ</span></td></tr>';
+        const details = [item.discount, item.code ? "Mã: " + item.code : "Không cần mã"].filter(Boolean).join(" · ");
+        return '<tr><td>' + (index + 1) + '</td><td>' + (image ? '<img src="' + escapeHtml(image) + '" alt="" />' : '—') + '</td><td><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(details) + '</small></td><td>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '">' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok">Hợp lệ</span></td></tr>';
       }).join("");
       const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td></tr>').join("");
       bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="6">Không có dữ liệu hợp lệ.</td></tr>';

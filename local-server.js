@@ -4776,6 +4776,7 @@ function adminPage(adminEmail = "") {
             <div class="cms-field-row"><label for="store-category">Danh mục</label><select id="store-category" name="category"><option>Other</option></select></div>
             <div class="cms-field-row"><label for="store-event">Events</label><select id="store-event" name="event"><option>Uncategorized</option><option>Black Friday</option><option>Valentine</option><option>Christmas</option><option>Halloween</option></select></div>
             <div class="cms-field-row"><label for="store-source-url">Website nguồn</label><div class="cms-store-source-control"><input id="store-source-url" name="sourceUrl" type="url" placeholder="https://website-cua-store.com/" /><button class="cms-btn cms-btn-info" id="store-extract-btn" type="button">⌁ Trích xuất logo & nội dung</button></div><small class="cms-field-help">Tự lấy logo, ảnh sản phẩm, tiêu đề và mô tả từ website công khai; không thay dữ liệu Offer/Deal gốc.</small></div>
+            <div class="cms-field-row cms-description-row"><label for="store-merchandise-description">Website bán gì</label><textarea id="store-merchandise-description" name="merchandiseDescription" rows="5" maxlength="1200" placeholder="Ví dụ: Website bán quần áo, giày dép và phụ kiện thời trang..."></textarea><small class="cms-field-help">Mô tả ngắn các sản phẩm hoặc dịch vụ Store đang bán. Nội dung này được hiển thị trên trang Store.</small></div>
             <div class="cms-field-row"><label for="store-image-file">Image</label><div class="cms-file-picker"><label class="cms-file-button" for="store-image-file">▧ Chọn file</label><input id="store-image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /><input id="store-image" name="image" type="text" placeholder="URL logo hoặc chọn file" /><span id="store-image-file-name">Chưa chọn file</span></div></div>
             <div class="cms-field-row cms-preview-row" id="store-image-preview-row" hidden><span></span><div class="cms-store-media-preview"><div><small>Logo store</small><img id="store-image-preview" alt="Store logo" /></div><div id="store-product-preview-wrap" hidden><small>Ảnh sản phẩm trích xuất</small><img id="store-product-preview" alt="Product preview" /></div></div></div>
             <div class="cms-field-row"><label>Duyệt bài</label><label class="cms-switch"><input name="approved" type="checkbox" checked /><span>YES</span></label></div>
@@ -5746,6 +5747,7 @@ function adminPage(adminEmail = "") {
       storeEditorForm.elements.event.value = item.event || 'Uncategorized';
       storeEditorForm.elements.sourceUrl.value = item.sourceUrl || '';
       storeEditorForm.elements.sourceTitle.value = item.sourceTitle || '';
+      storeEditorForm.elements.merchandiseDescription.value = item.merchandiseDescription || '';
       storeEditorForm.elements.ratingValue.value = Number(item.ratingValue || 0);
       storeEditorForm.elements.ratingCount.value = Number(item.ratingCount || 0);
       storeEditorForm.elements.ratingSource.value = item.ratingSource || '';
@@ -5867,6 +5869,7 @@ function adminPage(adminEmail = "") {
         storeEditorForm.elements.ratingUpdatedAt.value = assets.ratingValue && assets.ratingCount ? new Date().toISOString() : '';
         if (!storeEditorForm.elements.name.value && assets.sourceTitle) storeEditorForm.elements.name.value = assets.sourceTitle.split(/[|–—-]/)[0].trim();
         if (!storeEditorForm.elements.slug.value) storeEditorForm.elements.slug.value = adminSlug(storeEditorForm.elements.name.value);
+        if (!storeEditorForm.elements.merchandiseDescription.value) storeEditorForm.elements.merchandiseDescription.value = assets.sourceDescription || '';
         if (!storeEditorForm.elements.description.value) storeEditorForm.elements.description.value = assets.sourceDescription || '';
         if (!storeEditorForm.elements.aboutStore.value) storeEditorForm.elements.aboutStore.value = assets.sourceDescription || '';
         if (!storeEditorForm.elements.metaDescription.value) storeEditorForm.elements.metaDescription.value = assets.sourceDescription || '';

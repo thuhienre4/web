@@ -14,4 +14,4 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
       - key: ADMIN_EMAILS
-        value: hn084933@gmail.com,ecorpenglishbtl@gmail.com
+        value: hn084933@gmail.com,ecorpenglishbtl@gmail.com,nguyenlamvinh2411@gmail.com

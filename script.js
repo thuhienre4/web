@@ -3194,7 +3194,10 @@ async function getAffiliateItems() {
   }
 
   try {
-    const response = await fetch("/api/offers", { headers: { "Accept": "application/json" } });
+    const response = await fetch("/api/offers", {
+      cache: "no-store",
+      headers: { "Accept": "application/json" },
+    });
     if (!response.ok) {
       return starterAffiliateItems;
     }

@@ -3289,7 +3289,9 @@ function send(res, status, body, contentType = "text/plain; charset=utf-8", head
 }
 
 function sendJson(res, status, payload) {
-  send(res, status, JSON.stringify(payload), "application/json; charset=utf-8");
+  send(res, status, JSON.stringify(payload), "application/json; charset=utf-8", {
+    "Cache-Control": "no-store, private",
+  });
 }
 
 function getSafeAffiliateUrl(value) {
@@ -5217,7 +5219,7 @@ function adminPage(adminEmail = "") {
     }
 
     async function loadAdminDashboard() {
-      const res = await fetch("/api/admin/dashboard");
+      const res = await fetch("/api/admin/dashboard", { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
       const totals = data.totals || {};
@@ -6132,7 +6134,10 @@ function adminPage(adminEmail = "") {
     }
 
     async function loadOffers() {
-      const [res, storesRes] = await Promise.all([fetch("/api/offers"), fetch('/api/admin/stores')]);
+      const [res, storesRes] = await Promise.all([
+        fetch("/api/offers", { cache: "no-store" }),
+        fetch('/api/admin/stores', { cache: "no-store" }),
+      ]);
       const offers = await res.json();
       const stores = storesRes.ok ? await storesRes.json() : [];
       currentOffers = Array.isArray(offers) ? offers : [];

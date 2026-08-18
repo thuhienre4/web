@@ -2921,7 +2921,7 @@ function renderHomePageHtml() {
   const description = escapeHtml(settings.seoDescription || defaultSiteSettings.seoDescription);
   const keywords = escapeHtml(settings.seoKeywords || defaultSiteSettings.seoKeywords);
   let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const publicAssetVersion = '20260818-store-search-v2';
+  const publicAssetVersion = '20260818-store-carousel-cta';
   html = html.replace(/styles\.css(?:\?v=[^"']*)?/g, `styles.css?v=${publicAssetVersion}`);
   html = html.replace(/script\.js(?:\?v=[^"']*)?/g, `script.js?v=${publicAssetVersion}`);
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);

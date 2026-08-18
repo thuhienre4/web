@@ -4128,7 +4128,10 @@ function renderLandingHero(items) {
     if (!key || storeMap.has(key) || !(item.productImage || item.landingImage || item.logo)) return;
     storeMap.set(key, { key, brand, item });
   });
-  const stores = Array.from(storeMap.values());
+  const stores = Array.from(storeMap.values()).sort((a, b) => {
+    const quality = (entry) => (entry.item.landingImage ? 3 : entry.item.productImage ? 2 : 1);
+    return quality(b) - quality(a);
+  });
   if (!stores.length) return;
   activeHeroStoreIndex = Math.min(activeHeroStoreIndex, stores.length - 1);
 
@@ -4152,19 +4155,28 @@ function renderLandingHero(items) {
     const visual = banner.querySelector(".home-banner-visual");
     const label = banner.querySelector(".home-banner-copy small");
     const title = banner.querySelector(".home-banner-copy strong");
-    const foregroundSource = item.productImage || item.landingImage || item.logo;
+    const metaDiscount = banner.querySelector(".home-banner-meta b");
+    const metaDetails = banner.querySelector(".home-banner-meta span");
+    const action = banner.querySelector(".home-banner-action");
+    const foregroundSource = item.landingImage || item.productImage || item.logo;
     const backgroundSource = item.landingImage || item.productImage || item.logo;
-    banner.classList.toggle("uses-product-image", Boolean(item.productImage));
+    banner.classList.toggle("uses-product-image", Boolean(item.productImage && foregroundSource === item.productImage));
+    banner.classList.toggle("uses-landing-image", Boolean(item.landingImage && foregroundSource === item.landingImage));
+    banner.classList.toggle("uses-logo", Boolean(item.logo && foregroundSource === item.logo));
     if (visual) {
       const safeBackground = String(backgroundSource || "").replace(/["\\]/g, "\\$&");
       visual.style.setProperty("--banner-background", safeBackground ? `url("${safeBackground}")` : "none");
     }
     if (image) {
+      banner.classList.add("is-changing");
+      image.onload = () => banner.classList.remove("is-changing");
       image.onerror = () => {
-        const fallbackSource = item.landingImage || item.logo;
+        const fallbackSource = [item.landingImage, item.productImage, item.logo].find((source) => source && source !== foregroundSource);
         if (fallbackSource && image.src !== new URL(fallbackSource, window.location.href).href) {
           image.src = fallbackSource;
+          return;
         }
+        banner.classList.remove("is-changing");
       };
       image.src = foregroundSource;
       image.alt = `${brand} product deal`;
@@ -4173,12 +4185,19 @@ function renderLandingHero(items) {
     }
     if (label) label.textContent = `${brand} · ALOCOUPON PICK`;
     if (title) title.textContent = getDisplayOfferTitle(item);
+    if (metaDiscount) metaDiscount.textContent = item.discount || "Verified offer";
+    if (metaDetails) metaDetails.textContent = `${getOfferTypeLabel(item)} · ${item.expiry || "Available now"}`;
+    if (action) action.textContent = `Explore ${brand} →`;
     rail.querySelectorAll("[data-store-index]").forEach((button) => {
       button.classList.toggle("is-active", Number(button.dataset.storeIndex) === activeHeroStoreIndex);
     });
     dots.querySelectorAll("[data-store-index]").forEach((button) => {
-      const isActive = Number(button.dataset.storeIndex) === activeHeroStoreIndex;
+      const dotIndex = Number(button.dataset.storeIndex);
+      const isActive = dotIndex === activeHeroStoreIndex;
+      const directDistance = Math.abs(dotIndex - activeHeroStoreIndex);
+      const cyclicDistance = Math.min(directDistance, stores.length - directDistance);
       button.classList.toggle("is-active", isActive);
+      button.classList.toggle("is-visible", stores.length <= 7 || cyclicDistance <= 3);
       button.setAttribute("aria-pressed", String(isActive));
     });
     const activeChip = rail.querySelector(`[data-store-index="${activeHeroStoreIndex}"]`);
@@ -4216,6 +4235,12 @@ function renderLandingHero(items) {
 
   clearInterval(heroAutoplayTimer);
   selectStore(activeHeroStoreIndex, { instant: true });
+  if (stores.length > 1) {
+    heroAutoplayTimer = window.setInterval(() => {
+      if (document.hidden || carousel.matches(":hover") || carousel.contains(document.activeElement) || prefersReducedMotion.matches) return;
+      selectStore(activeHeroStoreIndex + 1);
+    }, 6500);
+  }
 }
 
 function getCarouselDots(name) {

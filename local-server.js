@@ -2921,6 +2921,9 @@ function renderHomePageHtml() {
   const description = escapeHtml(settings.seoDescription || defaultSiteSettings.seoDescription);
   const keywords = escapeHtml(settings.seoKeywords || defaultSiteSettings.seoKeywords);
   let html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const publicAssetVersion = '20260818-store-search-v2';
+  html = html.replace(/styles\.css(?:\?v=[^"']*)?/g, `styles.css?v=${publicAssetVersion}`);
+  html = html.replace(/script\.js(?:\?v=[^"']*)?/g, `script.js?v=${publicAssetVersion}`);
   html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
   html = html.replace(/<meta\s+name="description"[\s\S]*?\/>/i, `<meta name="description" content="${description}" />`);
   html = html.replace(/<meta\s+property="og:title"[^>]*\/>/i, `<meta property="og:title" content="${title}" />`);
@@ -6527,7 +6530,7 @@ function serveStatic(req, res, pathname) {
     const cacheControl = extension === ".html"
       ? "no-cache, must-revalidate"
       : [".css", ".js"].includes(extension)
-        ? "public, max-age=3600, must-revalidate"
+        ? "no-cache, must-revalidate"
         : "public, max-age=86400";
     res.writeHead(200, {
       "Content-Type": types[extension] || "application/octet-stream",

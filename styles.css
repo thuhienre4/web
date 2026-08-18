@@ -5347,6 +5347,8 @@ body.teela-inspired-theme:not(.admin-mode) > .site-header {
   scroll-behavior: smooth;
   scroll-snap-type: x mandatory;
   overscroll-behavior-inline: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .horizontal-carousel .carousel-track::-webkit-scrollbar {

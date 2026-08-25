@@ -4571,6 +4571,16 @@ function sanitizeOfferImage(value, label = "Image", maxBytes = 800 * 1024) {
   return `data:image/${match[1].toLowerCase()};base64,${match[2]}`;
 }
 
+function sanitizeOptionalHttpUrl(value, label = "URL") {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const url = new URL(raw);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error(`${label} must use a public HTTP or HTTPS URL.`);
+  }
+  return url.href;
+}
+
 function sanitizeOffer(input) {
   const offer = {
     id: String(input.id || "").trim() || createOfferId(),
@@ -4580,6 +4590,10 @@ function sanitizeOffer(input) {
     code: String(input.code || "").trim().toUpperCase().slice(0, 100),
     discount: String(input.discount || "").trim(),
     link: String(input.link || "").trim(),
+    fallbackLink: sanitizeOptionalHttpUrl(input.fallbackLink, "Vietnam fallback link"),
+    availability: ["global", "not-vietnam", "vietnam"].includes(String(input.availability || "").trim())
+      ? String(input.availability).trim()
+      : "global",
     category: String(input.category || "").trim(),
     expiry: String(input.expiry || "").trim(),
     expiryDate: String(input.expiryDate || input.expiresAt || "").trim().slice(0, 80),
@@ -4894,6 +4908,8 @@ function adminPage(adminEmail = "") {
             <div class="cms-field-row"><label for="deal-create-discount">Giảm giá</label><input id="deal-create-discount" name="discount" type="text" placeholder="Ví dụ: 20% Off" required /></div>
             <div class="cms-field-row"><label for="deal-create-code">Mã coupon <small>Không bắt buộc</small></label><input id="deal-create-code" name="code" type="text" maxlength="100" autocomplete="off" placeholder="Ví dụ: SAVE20" /><small class="cms-field-help">Điền mã để tạo Coupon Code; để trống để tạo Deal không cần mã.</small></div>
             <div class="cms-field-row"><label for="deal-create-link">Affiliate link</label><input id="deal-create-link" name="link" type="url" placeholder="https://..." required /></div>
+            <div class="cms-field-row"><label for="deal-create-fallback-link">Link dự phòng tại Việt Nam</label><input id="deal-create-fallback-link" name="fallbackLink" type="url" placeholder="Không bắt buộc — URL thay thế hoạt động tại Việt Nam" /></div>
+            <div class="cms-field-row"><label for="deal-create-availability">Khu vực khả dụng</label><select id="deal-create-availability" name="availability"><option value="global">Toàn cầu</option><option value="not-vietnam">Không khả dụng tại Việt Nam</option><option value="vietnam">Chỉ Việt Nam</option></select></div>
             <div class="cms-field-row"><label for="deal-create-expiry">Hạn sử dụng</label><input id="deal-create-expiry" name="expiry" type="text" placeholder="Không bắt buộc" /></div>
             <div class="cms-field-row"><label for="deal-create-meta-title">Meta title</label><input id="deal-create-meta-title" name="metaTitle" type="text" placeholder="Meta title" /></div>
           </form>
@@ -5048,6 +5064,10 @@ function adminPage(adminEmail = "") {
             <label>Expiry note <input name="expiry" type="text" placeholder="Ends this month" /></label>
           </div>
           <label>Affiliate link <input name="link" type="url" placeholder="https://partner-site.com/?ref=..." required /></label>
+          <div class="form-row">
+            <label>Vietnam fallback link <input name="fallbackLink" type="url" placeholder="Optional alternative URL for Vietnam" /></label>
+            <label>Regional availability <select name="availability"><option value="global">Global</option><option value="not-vietnam">Not available in Vietnam</option><option value="vietnam">Vietnam only</option></select></label>
+          </div>
           <div class="form-row">
             <label>Catalog / Category
               <select name="category">
@@ -6144,6 +6164,8 @@ function adminPage(adminEmail = "") {
         review: data.get("review"),
         discount: data.get("discount"),
         link: data.get("link"),
+        fallbackLink: data.get("fallbackLink"),
+        availability: data.get("availability"),
         expiry: data.get("expiry"),
         metaTitle: data.get("metaTitle"),
         type: couponCode ? "code" : "deal",
@@ -6197,6 +6219,8 @@ function adminPage(adminEmail = "") {
       form.elements.discount.value = offer.discount || "";
       form.elements.expiry.value = offer.expiry || "";
       form.elements.link.value = offer.link || "";
+      form.elements.fallbackLink.value = offer.fallbackLink || "";
+      form.elements.availability.value = offer.availability || "global";
       form.elements.review.value = offer.review || "";
       logoInput.value = "";
       setLogoPreview(offer.logo || "");
@@ -6703,6 +6727,22 @@ function redirectToOfferAffiliate(offer, res) {
   });
 }
 
+function getOfferRegionalTrackingUrl(offer) {
+  if (offer?.availability === "not-vietnam" && offer?.fallbackLink && offer?.id) {
+    return `/out/${encodeURIComponent(offer.id)}`;
+  }
+  return getAloCouponTrackingUrl(offer?.link);
+}
+
+function regionalRedirectPage(offer) {
+  const primary = addAloCouponUtmToAffiliate(getSafeAffiliateUrl(offer.link));
+  const fallback = addAloCouponUtmToAffiliate(getSafeAffiliateUrl(offer.fallbackLink));
+  const primaryJson = JSON.stringify(primary).replace(/</g, "\\u003c");
+  const fallbackJson = JSON.stringify(fallback).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><meta name="robots" content="noindex,nofollow" /><title>Opening product deal | AloCoupon</title><style>body{align-items:center;background:#f4f7f9;color:#18384c;display:flex;font:16px Inter,Arial,sans-serif;justify-content:center;margin:0;min-height:100vh}.box{background:#fff;border:1px solid #dfe7ec;border-radius:10px;box-shadow:0 16px 45px #17384c1a;max-width:560px;padding:34px;text-align:center}.box a{background:#18a86b;border-radius:7px;color:#fff;display:inline-block;font-weight:800;margin:7px;padding:11px 15px;text-decoration:none}.box a.alt{background:#e8f7f1;color:#087a51}</style></head><body><main class="box"><h1>Opening the best available product link…</h1><p>AloCoupon is checking regional availability for this offer.</p><p><a id="primary" href="${escapeHtml(primary)}">Open main offer</a><a class="alt" id="fallback" href="${escapeHtml(fallback)}">Open Vietnam alternative</a></p></main><script>(()=>{const language=String(navigator.language||'').toLowerCase();let zone='';try{zone=Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch{}const vietnam=language==='vi'||language.endsWith('-vn')||zone==='Asia/Ho_Chi_Minh';const target=vietnam?${fallbackJson}:${primaryJson};if(target&&target!=='#')location.replace(target)})();<\/script></body></html>`;
+}
+
 function dealPage(offer) {
   const affiliateLink = getSafeAffiliateUrl(offer.link);
   const brand = escapeHtml(getOfferBrandName(offer));
@@ -6712,6 +6752,9 @@ function dealPage(offer) {
   const category = escapeHtml(offer.category || "Deal");
   const validExpiry = getValidOfferExpiry(offer);
   const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
+  const regionalAvailability = offer.availability === "not-vietnam"
+    ? "Main offer unavailable in Vietnam — alternative link enabled"
+    : offer.availability === "vietnam" ? "Available in Vietnam only" : "Available globally";
   const review = escapeHtml(getStoreOfferDescription(offer, getOfferBrandName(offer)));
   const productImage = escapeHtml(offer.productImage || offer.landingImage || offer.logo || "");
   const fallbackImage = escapeHtml(offer.landingImage || offer.logo || "");
@@ -6723,7 +6766,7 @@ function dealPage(offer) {
     : publishedDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }));
   const hasCode = isUsableCouponCode(offer.code);
   const offerId = escapeHtml(offer.id);
-  const safeAffiliateLink = escapeHtml(getAloCouponTrackingUrl(affiliateLink));
+  const safeAffiliateLink = escapeHtml(getOfferRegionalTrackingUrl(offer));
   const storePath = escapeHtml(getOfferStorePath(getOfferBrandName(offer)));
   const dealUrl = escapeHtml(getAbsoluteUrl(getOfferDealPath(offer)));
   const structuredData = jsonLdScript(dealStructuredData(offer));
@@ -6808,6 +6851,7 @@ function dealPage(offer) {
           <span>${category}</span>
           <span>${expiry}</span>
           <span>${hasCode ? "Coupon code available" : "Affiliate deal"}</span>
+          <span>${escapeHtml(regionalAvailability)}</span>
         </div>
         <div class="deal-price-panel"><div><span>Offer</span><strong>${discount}</strong></div><div><span>Product price</span><strong>${sourcePrice}</strong></div></div>
         <p class="deal-description">${review}</p>
@@ -6828,7 +6872,7 @@ function dealPage(offer) {
         <div><span>Current promotion</span><strong>${discount}</strong></div>
         <div><span>Published</span><strong>${publishedLabel}</strong></div>
         <div><span>Coupon requirement</span><strong>${hasCode ? "Coupon code required at checkout" : "No coupon code required"}</strong></div>
-        <div><span>Availability</span><strong>${expiry}</strong></div>
+        <div><span>Availability</span><strong>${escapeHtml(regionalAvailability)}</strong></div>
       </div>
       <p class="deal-disclosure">Product prices, availability, eligibility and offer terms can change on the merchant website. Confirm the final price and discount before completing your purchase.</p>
     </section>
@@ -6885,7 +6929,7 @@ function storePage(group) {
   const primaryOffer = visibleItems.find((offer) => offer.logo) || visibleItems[0] || {};
   const bestOfferItem = [...visibleItems].sort((a, b) => getStoreDiscountScore(b.discount) - getStoreDiscountScore(a.discount))[0];
   const bestOffer = escapeHtml(formatStoreDiscount(bestOfferItem?.discount || "Best Deal"));
-  const affiliateLink = escapeHtml(getAloCouponTrackingUrl(primaryOffer.link || storeRecord.sourceUrl || "#"));
+  const affiliateLink = escapeHtml(primaryOffer.id ? getOfferRegionalTrackingUrl(primaryOffer) : getAloCouponTrackingUrl(storeRecord.sourceUrl || "#"));
   const domain = escapeHtml(getOfferLogoHost(primaryOffer));
   const logo = escapeHtml(storeRecord.image || primaryOffer.logo || "");
   const initials = escapeHtml(String(group.brand || "Store").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "ST");
@@ -6920,7 +6964,7 @@ function storePage(group) {
     const typeLabel = hasCode ? "Coupon code" : "Online deal";
     const validExpiry = getValidOfferExpiry(offer);
     const expiry = escapeHtml(validExpiry ? `Expires ${new Date(validExpiry).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}` : "Expiry not supplied by source");
-    const safeLink = escapeHtml(getAloCouponTrackingUrl(offer.link));
+    const safeLink = escapeHtml(getOfferRegionalTrackingUrl(offer));
     const offerId = escapeHtml(offer.id);
     const detailPath = escapeHtml(getOfferDealPath(offer));
     const sourcePrice = escapeHtml([offer.sourceCurrency, offer.sourcePrice].filter(Boolean).join(" "));
@@ -7556,6 +7600,22 @@ async function prepareBatchOffers(rawItems, { autoExtract = true } = {}) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${host}:${port}`);
+
+    const regionalOfferMatch = url.pathname.match(/^\/out\/([^/]+)$/);
+    if (req.method === "GET" && regionalOfferMatch) {
+      const offerId = decodeURIComponent(regionalOfferMatch[1]);
+      const offer = readOffers().find((item) => item.id === offerId);
+      if (!offer) {
+        send(res, 404, "Offer not found");
+        return;
+      }
+      if (offer.availability === "not-vietnam" && offer.fallbackLink) {
+        send(res, 200, regionalRedirectPage(offer), "text/html; charset=utf-8", { "Cache-Control": "no-store" });
+      } else {
+        redirectToOfferAffiliate(offer, res);
+      }
+      return;
+    }
 
     if (req.method === "GET" && (url.pathname === "/go" || url.pathname.startsWith("/go/"))) {
       handleAffiliateRedirect(url, res);

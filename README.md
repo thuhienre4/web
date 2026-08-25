@@ -8,6 +8,8 @@ AloCoupon is a coupon and affiliate offer website with a small Node.js admin API
 - Partner offer API at `/api/offers`
 - Protected admin dashboard at `/admin`
 - Admin upload, edit, and delete for coupon/deal data
+- Automatic public-page extraction for product titles, descriptions, logos and product images
+- Regional offer availability with an automatic Vietnam fallback link
 - Private admin upload, download, and delete for source-code/project files with descriptions
 - JSON-backed data files in `data/`
 
@@ -36,6 +38,8 @@ Change this before deploying.
 ```powershell
 npm run check
 ```
+
+When an affiliate offer is blocked in Vietnam, set **Regional availability** to **Not available in Vietnam** and provide a **Vietnam fallback link** in Admin. Public deal links then pass through `/out/:offerId`, which selects the alternative for visitors using Vietnamese locale or the `Asia/Ho_Chi_Minh` time zone while preserving the primary affiliate URL for other visitors.
 
 ## Data Files
 

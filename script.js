@@ -3311,7 +3311,10 @@ function getAloCouponTrackingUrl(value) {
   return addAloCouponUtmToAffiliate(value);
 }
 
-function getAloCouponAffiliateUrl(value) {
+function getAloCouponAffiliateUrl(value, offer) {
+  if (offer?.availability === "not-vietnam" && offer?.fallbackLink && offer?.id) {
+    return `/out/${encodeURIComponent(String(offer.id))}`;
+  }
   return getAloCouponTrackingUrl(value);
 }
 
@@ -3597,7 +3600,7 @@ function createAffiliateCard(item, index) {
   const article = document.createElement("article");
   article.className = "admin-offer-card";
 
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link, item);
   const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
   const initials = escapeHtml(getStoreInitials(getOfferBrandName(item)));
@@ -3640,7 +3643,7 @@ function createUploadedDealCard(item, index) {
   const article = document.createElement("article");
   article.className = "deal-card searchable-deal uploaded-public-deal";
 
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link, item);
   const detailLink = getOfferDealUrl(item);
   const rawLink = escapeHtml(item.link || "");
   const brandName = getOfferBrandName(item);
@@ -3777,7 +3780,7 @@ function createLiveCouponRow(item) {
   const buttonLabel = getOfferButtonLabel(item);
   article.dataset.couponType = `${kind === "deal" ? "deal" : "code"} verified`;
 
-  const safeLink = getAloCouponAffiliateUrl(item.link);
+  const safeLink = getAloCouponAffiliateUrl(item.link, item);
   const brand = escapeHtml(getOfferBrandName(item));
   const title = escapeHtml(getDisplayOfferTitle(item));
   const review = escapeHtml(getOfferSummary(item));
@@ -4064,7 +4067,7 @@ function renderFeaturePost(items) {
     const imageSource = item.productImage || item.landingImage || item.logo || "assets/affiliate-hero.png";
     const fallbackSource = item.landingImage || item.logo || "assets/affiliate-hero.png";
     const detailLink = getOfferDealUrl(item);
-    const affiliateLink = getAloCouponAffiliateUrl(item.link);
+    const affiliateLink = getAloCouponAffiliateUrl(item.link, item);
     const usesLogo = Boolean(item.logo && imageSource === item.logo);
     const currentPrice = formatPrice(item.sourcePrice, item.sourceCurrency);
     const comparePrice = formatPrice(item.sourceCompareAtPrice, item.sourceCurrency);

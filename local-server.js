@@ -4877,7 +4877,7 @@ function adminPage(adminEmail = "") {
               <p id="bulk-deal-result">Chọn file rồi bấm “Xem trước & lấy ảnh”. Dòng trùng hoặc thiếu dữ liệu sẽ không được đăng.</p>
               <div class="bulk-preview" id="bulk-preview" hidden>
                 <div class="bulk-preview-summary" id="bulk-preview-summary"></div>
-                <div class="bulk-preview-table-wrap"><table class="bulk-preview-table"><thead><tr><th>#</th><th>Ảnh</th><th>Deal / Coupon</th><th>Store</th><th>Loại</th><th>Trạng thái</th></tr></thead><tbody id="bulk-preview-body"></tbody></table></div>
+                <div class="bulk-preview-table-wrap"><table class="bulk-preview-table"><thead><tr><th>#</th><th>Ảnh</th><th>Deal / Coupon</th><th>Store</th><th>Loại</th><th>Trạng thái</th><th>Chỉnh sửa</th></tr></thead><tbody id="bulk-preview-body"></tbody></table></div>
               </div>
             </form>
           </details>
@@ -5514,16 +5514,68 @@ function adminPage(adminEmail = "") {
       const dealRows = validRows.length - couponRows;
       bulkPreview.hidden = false;
       bulkPreviewSummary.innerHTML = '<strong>' + validRows.length + ' dòng sẵn sàng</strong><span>' + couponRows + ' Coupon Code</span><span>' + dealRows + ' Deal</span><span>' + Number(result.extractedCount || 0) + ' dòng có ảnh tự động</span><span>' + issueRows.length + ' dòng bị bỏ qua</span>';
-      const validHtml = validRows.slice(0, 200).map((item, index) => {
+      const validHtml = validRows.map((item, index) => {
         const image = item.productImage || item.logo || "";
         const details = [item.discount, item.code ? "Mã: " + item.code : "Không cần mã"].filter(Boolean).join(" · ");
-        return '<tr><td>' + (index + 1) + '</td><td>' + (image ? '<img src="' + escapeHtml(image) + '" alt="" />' : '—') + '</td><td><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(details) + '</small></td><td>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '">' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok">Hợp lệ</span></td></tr>';
+        return '<tr data-bulk-index="' + index + '"><td>' + (index + 1) + '</td><td><div class="bulk-image-editor"><img data-bulk-image src="' + escapeHtml(image) + '" alt=""' + (image ? '' : ' hidden') + ' /><label>Đổi ảnh<input data-bulk-image-input type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label></div></td><td><strong data-bulk-title>' + escapeHtml(item.title) + '</strong><small data-bulk-details>' + escapeHtml(details) + '</small></td><td data-bulk-brand>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '" data-bulk-type>' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok" data-bulk-status>Hợp lệ</span></td><td><details class="bulk-row-editor"><summary>Sửa</summary><div><label>Tên Deal/Coupon<input data-bulk-field="title" value="' + escapeHtml(item.title) + '" /></label><label>Giảm giá<input data-bulk-field="discount" value="' + escapeHtml(item.discount) + '" /></label><label>Mã Coupon<input data-bulk-field="code" value="' + escapeHtml(item.code || '') + '" placeholder="Để trống nếu là Deal" /></label><label>Store<input data-bulk-field="brand" value="' + escapeHtml(item.brand) + '" /></label></div></details></td></tr>';
       }).join("");
-      const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td></tr>').join("");
-      bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="6">Không có dữ liệu hợp lệ.</td></tr>';
+      const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td><td>—</td></tr>').join("");
+      bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="7">Không có dữ liệu hợp lệ.</td></tr>';
       preparedBulkDeals = validRows;
       runBulkDealImportButton.disabled = !preparedBulkDeals.length;
     }
+
+    function refreshBulkPreviewRow(row, item) {
+      const title = row.querySelector('[data-bulk-title]');
+      const details = row.querySelector('[data-bulk-details]');
+      const brand = row.querySelector('[data-bulk-brand]');
+      const type = row.querySelector('[data-bulk-type]');
+      const status = row.querySelector('[data-bulk-status]');
+      if (title) title.textContent = item.title || 'Chưa có tên';
+      if (details) details.textContent = [item.discount, item.code ? 'Mã: ' + item.code : 'Không cần mã'].filter(Boolean).join(' · ');
+      if (brand) brand.textContent = item.brand || 'Chưa có Store';
+      if (type) {
+        type.textContent = item.type === 'code' ? 'Coupon' : 'Deal';
+        type.className = 'bulk-type ' + item.type;
+      }
+      const isValid = Boolean(item.title && item.discount && item.brand && (item.productImage || item.logo));
+      if (status) {
+        status.textContent = isValid ? 'Hợp lệ' : 'Cần bổ sung';
+        status.className = 'bulk-status ' + (isValid ? 'ok' : 'error');
+      }
+    }
+
+    bulkPreviewBody.addEventListener('input', (event) => {
+      const input = event.target.closest('[data-bulk-field]');
+      const row = input?.closest('[data-bulk-index]');
+      if (!input || !row) return;
+      const item = preparedBulkDeals[Number(row.dataset.bulkIndex)];
+      if (!item) return;
+      const field = input.dataset.bulkField;
+      item[field] = field === 'code' ? input.value.trim().toUpperCase() : input.value.trim();
+      if (field === 'code') item.type = item.code ? 'code' : 'deal';
+      refreshBulkPreviewRow(row, item);
+    });
+
+    bulkPreviewBody.addEventListener('change', async (event) => {
+      const input = event.target.closest('[data-bulk-image-input]');
+      const row = input?.closest('[data-bulk-index]');
+      const file = input?.files?.[0];
+      if (!input || !row || !file) return;
+      const item = preparedBulkDeals[Number(row.dataset.bulkIndex)];
+      if (!item) return;
+      try {
+        item.productImage = await readLogoFile(file, 1_500 * 1024, 'Deal image');
+        const image = row.querySelector('[data-bulk-image]');
+        image.src = item.productImage;
+        image.hidden = false;
+        refreshBulkPreviewRow(row, item);
+        showToast('Đã cập nhật ảnh cho ' + (item.title || 'Deal/Coupon') + '.');
+      } catch (error) {
+        input.value = '';
+        showToast(error.message);
+      }
+    });
 
     bulkDealImportForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -6102,11 +6154,11 @@ function adminPage(adminEmail = "") {
       logoPreview.hidden = !currentLogo;
     }
 
-    function readLogoFile(file) {
+    function readLogoFile(file, maxBytes = 500 * 1024, label = "Deal logo") {
       return new Promise((resolve, reject) => {
         const allowedTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
         if (!allowedTypes.includes(file.type)) return reject(new Error("Choose a PNG, JPG, WEBP, or GIF image."));
-        if (file.size > 500 * 1024) return reject(new Error("Deal logo must be 500 KB or smaller."));
+        if (file.size > maxBytes) return reject(new Error(label + " must be " + Math.round(maxBytes / 1024) + " KB or smaller."));
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
         reader.onerror = () => reject(new Error("Could not read the selected logo."));
@@ -6950,6 +7002,18 @@ function storePage(group) {
   const externalRating = getStoreRating(group);
   const rating = shopperRating || externalRating;
   const ratingStoreSlug = escapeHtml(storeRecord.slug || getOfferStoreSlug(group.brand));
+  const approvedStores = readStores().filter((item) => item.approved);
+  const storeSearchMap = new Map();
+  Array.from(groupOffersByBrand(readOffers()).values()).forEach((offerGroup) => {
+    const defaultSlug = getOfferStoreSlug(offerGroup.brand);
+    const record = approvedStores.find((item) => item.slug === defaultSlug || String(item.sourceBrand || item.name).trim().toLowerCase() === String(offerGroup.brand).trim().toLowerCase());
+    const slug = record?.slug || defaultSlug;
+    const name = record?.name || offerGroup.brand;
+    storeSearchMap.set(slug, { name, slug, keywords: `${name} ${offerGroup.brand} ${slug}`.toLowerCase() });
+  });
+  const storeSearchItems = Array.from(storeSearchMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const storeSearchData = JSON.stringify(storeSearchItems).replace(/</g, "\\u003c");
+  const storeSearchOptions = storeSearchItems.map((item) => `<option value="${escapeHtml(item.name)}"></option>`).join("");
   const faqRows = faqs.map((faq) => `<details><summary>${escapeHtml(faq.question)}</summary><p>${escapeHtml(faq.answer)}</p></details>`).join("");
   const relatedStoreLinks = getRelatedStoreGroups(group).map((related) => `<a href="${escapeHtml(getOfferStorePath(related.brand))}">${escapeHtml(related.brand)} coupons <span>${related.items.length} offers</span></a>`).join("");
   const verifiedMerchandiseItems = (Array.isArray(storeRecord.merchandiseItems) ? storeRecord.merchandiseItems : []).slice(0, 8);
@@ -7274,9 +7338,10 @@ function storePage(group) {
     <div class="brand-topbar-inner">
       <a class="brand-site-logo" href="/" aria-label="AloCoupon home"><img src="/assets/alocoupon-logo.svg" alt="" /><strong>Alo<span>Coupon</span></strong></a>
       <form class="store-page-search" action="/" method="get">
-        <input name="q" type="search" placeholder="Search Stores" aria-label="Search stores" />
+        <input name="q" type="search" placeholder="Search Stores" aria-label="Search stores" list="store-search-options" autocomplete="off" />
         <button type="submit" aria-label="Search stores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg></button>
       </form>
+      <datalist id="store-search-options">${storeSearchOptions}</datalist>
       <a class="brand-back-link" href="/#stores">← Explore all stores</a>
     </div>
   </header>
@@ -7394,6 +7459,19 @@ function storePage(group) {
   </main>
   <script>
     (() => {
+      const storeSearchForm = document.querySelector('.store-page-search');
+      const storeSearchItems = ${storeSearchData};
+      const normalizeStoreSearch = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      storeSearchForm.addEventListener('submit', (event) => {
+        const query = normalizeStoreSearch(storeSearchForm.elements.q.value);
+        if (!query) return;
+        const exact = storeSearchItems.find((item) => normalizeStoreSearch(item.name) === query || normalizeStoreSearch(item.slug) === query);
+        const partialMatches = storeSearchItems.filter((item) => normalizeStoreSearch(item.keywords).includes(query));
+        const match = exact || (partialMatches.length === 1 ? partialMatches[0] : null);
+        if (!match) return;
+        event.preventDefault();
+        window.location.href = '/store/' + encodeURIComponent(match.slug);
+      });
       const cards = [...document.querySelectorAll('.brand-offer-card')];
       const search = document.querySelector('.brand-offer-search');
       const empty = document.querySelector('.brand-empty');

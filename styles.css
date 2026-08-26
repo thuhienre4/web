@@ -4831,6 +4831,15 @@ body:not(.admin-mode) #deals .section-title {
 .bulk-preview-table td small { display: block; }
 .bulk-preview-table td small { margin-top: 3px; color: #73808a; }
 .bulk-preview-table tr.has-error { background: #fff7f7; }
+.bulk-image-editor { display: grid; justify-items: center; gap: 5px; min-width: 70px; }
+.bulk-image-editor label { display: inline-flex; padding: 4px 7px; color: #087cf0; background: #eef7ff; border: 1px solid #cce5ff; border-radius: 4px; cursor: pointer; font-size: .7rem; font-weight: 800; }
+.bulk-image-editor input { display: none; }
+.bulk-row-editor { min-width: 84px; }
+.bulk-row-editor summary { color: #087cf0; cursor: pointer; font-weight: 800; white-space: nowrap; }
+.bulk-row-editor > div { width: min(380px, 80vw); display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; padding: 12px; background: #f8fafc; border: 1px solid #ccd7df; border-radius: 6px; }
+.bulk-row-editor label { display: grid; gap: 4px; color: #46545f; font-size: .72rem; font-weight: 800; }
+.bulk-row-editor input { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid #cbd4dc; border-radius: 4px; font: inherit; }
+.bulk-row-editor input:focus { border-color: #087cf0; outline: 2px solid rgba(8, 124, 240, .12); }
 .bulk-type,
 .bulk-status { display: inline-block; padding: 4px 7px; border-radius: 999px; font-size: 0.74rem; font-weight: 800; white-space: nowrap; }
 .bulk-type { background: #edf2ff; color: #315fc5; }

@@ -4577,7 +4577,15 @@ function renderPopularStores(items) {
       image.nextElementSibling?.classList.add("is-visible");
     });
   });
-  updateStoreDirectory();
+  const initialStoreQuery = new URLSearchParams(window.location.search).get("q")?.trim() || "";
+  if (initialStoreQuery) {
+    document.querySelectorAll(".teela-home-search input").forEach((input) => {
+      input.value = initialStoreQuery;
+    });
+    updateStoreDirectory({ query: initialStoreQuery, scroll: true, focusFirst: true });
+  } else {
+    updateStoreDirectory();
+  }
 }
 
 dealSearchInputEl?.addEventListener("input", (event) => {

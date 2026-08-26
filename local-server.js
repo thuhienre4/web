@@ -6171,7 +6171,7 @@ function adminPage(adminEmail = "") {
         type: couponCode ? "code" : "deal",
         code: couponCode,
         logo: currentDealLogo,
-        autoExtract: true,
+        autoExtract: !currentDealLogo,
       };
       const submitButton = document.querySelector('[form="deal-create-form"]');
       submitButton.disabled = true;
@@ -7163,7 +7163,9 @@ function storePage(group) {
     .brand-back-link { display: none; }
     .store-page-search { box-shadow: 0 12px 22px rgba(0, 0, 0, .12); flex: 1; margin: 0; max-width: none; }
     .store-page-search input { background: #fff; border: 1px solid #cfd5dc; border-radius: 4px 0 0 4px; color: #586b7b; font-size: 20px; height: 50px; padding: 0 16px; }
-    .store-page-search button { align-items: center; background: #eef1f4; border: 1px solid #cfd5dc; border-left: 0; color: #102f46; display: flex; height: 50px; justify-content: center; padding: 0; width: 84px; }
+    .store-page-search button { align-items: center; background: #087dbd; border: 1px solid #087dbd; border-left: 0; color: #fff; display: flex; height: 50px; justify-content: center; padding: 0; width: 84px; }
+    .store-page-search button:hover { background: #066b9f; border-color: #066b9f; }
+    .store-page-search button:focus-visible { outline: 3px solid rgba(8, 125, 189, .28); outline-offset: 2px; }
     .store-page-search button svg { fill: none; height: 20px; stroke: currentColor; stroke-linecap: round; stroke-width: 2.2; width: 20px; }
     .brand-page { max-width: 1412px; padding: 46px 0 72px; }
     .brand-breadcrumb { display: none; }
@@ -7526,7 +7528,8 @@ async function prepareBatchOffers(rawItems, { autoExtract = true } = {}) {
   const extractionJobs = new Map();
   if (autoExtract) {
     items.forEach((item) => {
-      if ((item.logo && item.productImage && item.sourceTitle && item.sourceDescription) || !item.link) return;
+      const hasCompleteManualData = item.logo && item.brand && item.title && item.discount && item.category && item.review;
+      if (hasCompleteManualData || !item.link) return;
       const key = String(item.link).trim();
       if (!extractionJobs.has(key)) extractionJobs.set(key, item.link);
     });
@@ -8130,7 +8133,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const payload = JSON.parse(await readBody(req));
-      if (payload.link && payload.autoExtract !== false) {
+      if (payload.link && payload.autoExtract !== false && !payload.logo) {
         try {
           const assets = await extractStoreAssets(payload.link);
           payload.logo ||= assets.logo;

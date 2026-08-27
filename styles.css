@@ -6763,6 +6763,7 @@ body.teela-inspired-theme:not(.admin-mode) .teela-home-slogan {
 
 body.teela-inspired-theme:not(.admin-mode) .teela-home-search {
   width: min(100%, 790px);
+  grid-template-columns: minmax(0, 1fr) 124px;
   min-height: 58px;
   margin: 0 auto 25px;
   background: #fff;
@@ -6784,13 +6785,19 @@ body.teela-inspired-theme:not(.admin-mode) .teela-home-search input {
 }
 
 body.teela-inspired-theme:not(.admin-mode) .teela-home-search button {
-  width: auto;
-  min-width: 112px;
+  width: 124px;
+  min-width: 124px;
   min-height: 58px;
+  gap: 8px;
+  padding: 0 20px;
   color: #fff;
   background: linear-gradient(135deg, #087dbd, #075f91);
   border-radius: 0 15px 15px 0;
   font-size: 0.86rem;
+}
+
+body.teela-inspired-theme:not(.admin-mode) .teela-home-search button::before {
+  content: none !important;
 }
 
 body.teela-inspired-theme:not(.admin-mode) .hero .eyebrow {
@@ -7056,7 +7063,7 @@ body.teela-inspired-theme:not(.admin-mode) .home-banner-dots button.is-active {
   }
 
   body.teela-inspired-theme:not(.admin-mode) .teela-home-search {
-    grid-template-columns: minmax(0, 1fr) 72px;
+    grid-template-columns: minmax(0, 1fr) 92px;
     min-height: 52px;
   }
 
@@ -7067,11 +7074,11 @@ body.teela-inspired-theme:not(.admin-mode) .home-banner-dots button.is-active {
   }
 
   body.teela-inspired-theme:not(.admin-mode) .teela-home-search button {
-    width: 72px;
-    min-width: 72px;
+    width: 92px;
+    min-width: 92px;
     min-height: 52px;
-    padding: 0;
-    font-size: 0;
+    padding: 0 12px;
+    font-size: 0.78rem;
   }
 
   body.teela-inspired-theme:not(.admin-mode) .teela-home-search button::before {

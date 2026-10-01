@@ -4870,14 +4870,14 @@ function adminPage(adminEmail = "") {
             <summary>⇧ Chọn file Deal / Coupon (CSV / JSON)</summary>
             <form id="bulk-deal-import-form">
               <label>Các file dữ liệu <input id="bulk-deal-file" type="file" accept=".csv,.json,text/csv,application/json" multiple required /></label>
-              <small>File dùng 3 cột: link, discount và code. Cột code không bắt buộc: có mã sẽ tạo Coupon Code, để trống sẽ tạo Deal. Hệ thống tự quét tên, mô tả, store, danh mục và hình ảnh. Tối đa 500 dòng mỗi lần.</small>
+              <small>File dùng 4 cột: link, discount, code và description. Điền mô tả coupon vào description; để trống sẽ lấy mô tả từ website. Cột code không bắt buộc: có mã sẽ tạo Coupon Code, để trống sẽ tạo Deal. Hệ thống tự quét tên, store, danh mục và hình ảnh. Tối đa 500 dòng mỗi lần.</small>
               <label>Logo chung (không bắt buộc) <input id="bulk-deal-logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
               <label class="bulk-auto-assets"><input id="bulk-auto-assets" type="checkbox" checked disabled /> <span><strong>Tự động quét nội dung và hình ảnh</strong><small>Hệ thống lấy tên deal, mô tả, store, danh mục, logo và ảnh sản phẩm từ affiliate link công khai.</small></span></label>
               <div class="bulk-deal-actions"><button class="cms-btn cms-btn-info" id="download-deal-template" type="button">Tải CSV mẫu</button><button class="cms-btn cms-btn-info" id="preview-bulk-deals" type="submit">1. Xem trước & lấy ảnh</button><button class="cms-btn cms-btn-primary" id="run-bulk-deal-import" type="button" disabled>2. Đăng dữ liệu hợp lệ</button></div>
               <p id="bulk-deal-result">Chọn file rồi bấm “Xem trước & lấy ảnh”. Dòng trùng hoặc thiếu dữ liệu sẽ không được đăng.</p>
               <div class="bulk-preview" id="bulk-preview" hidden>
                 <div class="bulk-preview-summary" id="bulk-preview-summary"></div>
-                <div class="bulk-preview-table-wrap"><table class="bulk-preview-table"><thead><tr><th>#</th><th>Ảnh</th><th>Deal / Coupon</th><th>Store</th><th>Loại</th><th>Trạng thái</th><th>Chỉnh sửa</th></tr></thead><tbody id="bulk-preview-body"></tbody></table></div>
+                <div class="bulk-preview-table-wrap"><table class="bulk-preview-table"><thead><tr><th>#</th><th>Ảnh</th><th>Deal / Coupon</th><th>Mô tả coupon</th><th>Store</th><th>Loại</th><th>Trạng thái</th><th>Chỉnh sửa</th></tr></thead><tbody id="bulk-preview-body"></tbody></table></div>
               </div>
             </form>
           </details>
@@ -5461,7 +5461,8 @@ function adminPage(adminEmail = "") {
         discount: pick("discount", "sale", "giảm giá"),
         link: pick("link", "url", "affiliate_link", "affiliate link"),
         category: pick("category", "catalog", "danh mục") || "Other",
-        review: pick("review", "description", "mô tả") || title,
+        review: pick("description", "review", "mô tả", "mo ta"),
+        sourceDescription: pick("description", "review", "mô tả", "mo ta"),
         expiry: pick("expiry", "expires", "hạn sử dụng"),
         logo: pick("logo", "image", "logo_data"),
         code,
@@ -5473,9 +5474,9 @@ function adminPage(adminEmail = "") {
 
     document.querySelector("#download-deal-template").addEventListener("click", () => {
       const csv = [
-        'link,discount,code',
-        '"https://example.com/product?ref=your-id","20% OFF","SAVE20"',
-        '"https://example.com/sale?ref=your-id","Free shipping",""',
+        'link,discount,code,description',
+        '"https://example.com/product?ref=your-id","20% OFF","SAVE20","Save 20% on selected products with code SAVE20."',
+        '"https://example.com/sale?ref=your-id","Free shipping","","Free shipping on eligible orders."',
         '',
       ].join(String.fromCharCode(10));
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -5517,10 +5518,10 @@ function adminPage(adminEmail = "") {
       const validHtml = validRows.map((item, index) => {
         const image = item.productImage || item.logo || "";
         const details = [item.discount, item.code ? "Mã: " + item.code : "Không cần mã"].filter(Boolean).join(" · ");
-        return '<tr data-bulk-index="' + index + '"><td>' + (index + 1) + '</td><td><div class="bulk-image-editor"><img data-bulk-image src="' + escapeHtml(image) + '" alt=""' + (image ? '' : ' hidden') + ' /><label>Đổi ảnh<input data-bulk-image-input type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label></div></td><td><strong data-bulk-title>' + escapeHtml(item.title) + '</strong><small data-bulk-details>' + escapeHtml(details) + '</small></td><td data-bulk-brand>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '" data-bulk-type>' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok" data-bulk-status>Hợp lệ</span></td><td><details class="bulk-row-editor"><summary>Sửa</summary><div><label>Tên Deal/Coupon<input data-bulk-field="title" value="' + escapeHtml(item.title) + '" /></label><label>Giảm giá<input data-bulk-field="discount" value="' + escapeHtml(item.discount) + '" /></label><label>Mã Coupon<input data-bulk-field="code" value="' + escapeHtml(item.code || '') + '" placeholder="Để trống nếu là Deal" /></label><label>Store<input data-bulk-field="brand" value="' + escapeHtml(item.brand) + '" /></label></div></details></td></tr>';
+        return '<tr data-bulk-index="' + index + '"><td>' + (index + 1) + '</td><td><div class="bulk-image-editor"><img data-bulk-image src="' + escapeHtml(image) + '" alt=""' + (image ? '' : ' hidden') + ' /><label>Đổi ảnh<input data-bulk-image-input type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label></div></td><td><strong data-bulk-title>' + escapeHtml(item.title) + '</strong><small data-bulk-details>' + escapeHtml(details) + '</small></td><td><textarea class="bulk-description-input" data-bulk-field="review" aria-label="Mô tả coupon" rows="4">' + escapeHtml(item.sourceDescription || item.review || '') + '</textarea></td><td data-bulk-brand>' + escapeHtml(item.brand) + '</td><td><span class="bulk-type ' + escapeHtml(item.type) + '" data-bulk-type>' + (item.type === "code" ? "Coupon" : "Deal") + '</span></td><td><span class="bulk-status ok" data-bulk-status>Hợp lệ</span></td><td><details class="bulk-row-editor"><summary>Sửa</summary><div><label>Tên Deal/Coupon<input data-bulk-field="title" value="' + escapeHtml(item.title) + '" /></label><label>Giảm giá<input data-bulk-field="discount" value="' + escapeHtml(item.discount) + '" /></label><label>Mã Coupon<input data-bulk-field="code" value="' + escapeHtml(item.code || '') + '" placeholder="Để trống nếu là Deal" /></label><label>Store<input data-bulk-field="brand" value="' + escapeHtml(item.brand) + '" /></label></div></details></td></tr>';
       }).join("");
-      const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td><td>—</td></tr>').join("");
-      bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="7">Không có dữ liệu hợp lệ.</td></tr>';
+      const issueHtml = issueRows.slice(0, 100).map((item) => '<tr class="has-error"><td>' + escapeHtml(item.row || "—") + '</td><td>—</td><td><strong>' + escapeHtml(item.title || "Dòng dữ liệu") + '</strong></td><td>—</td><td>—</td><td>—</td><td><span class="bulk-status error">' + escapeHtml(item.error || "Không hợp lệ") + '</span></td><td>—</td></tr>').join("");
+      bulkPreviewBody.innerHTML = validHtml + issueHtml || '<tr><td colspan="8">Không có dữ liệu hợp lệ.</td></tr>';
       preparedBulkDeals = validRows;
       runBulkDealImportButton.disabled = !preparedBulkDeals.length;
     }
@@ -5553,6 +5554,7 @@ function adminPage(adminEmail = "") {
       if (!item) return;
       const field = input.dataset.bulkField;
       item[field] = field === 'code' ? input.value.trim().toUpperCase() : input.value.trim();
+      if (field === 'review') item.sourceDescription = item.review;
       if (field === 'code') item.type = item.code ? 'code' : 'deal';
       refreshBulkPreviewRow(row, item);
     });

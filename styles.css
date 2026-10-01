@@ -7140,3 +7140,6 @@ body.teela-inspired-theme:not(.admin-mode) .home-banner-dots button.is-active {
     bottom: 104px;
   }
 }
+
+.bulk-description-input { width: 100%; min-width: 240px; padding: 8px; border: 1px solid #cbd4dc; border-radius: 4px; font: inherit; resize: vertical; }
+.bulk-description-input:focus { border-color: #087cf0; outline: 2px solid rgba(8, 124, 240, .12); }
